@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{subject}} - {{appName}}</title>
+    <style>
+        /* Base Styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            line-height: 1.6;
+            color: #2d3748;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Header */
+        .email-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px 30px;
+            text-align: center;
+            color: white;
+        }
+        
+        .logo {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+        
+        .header-subtitle {
+            opacity: 0.9;
+            font-size: 16px;
+            font-weight: 400;
+        }
+        
+        /* Content */
+        .email-content {
+            padding: 50px 40px;
+        }
+        
+        .content-header {
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .content-title {
+            font-size: 28px;
+            font-weight: 700;
+            color: #2d3748;
+            margin-bottom: 10px;
+        }
+        
+        .content-subtitle {
+            font-size: 16px;
+            color: #718096;
+            line-height: 1.5;
+        }
+        
+        /* Cards & Sections */
+        .info-card {
+            background: #f7fafc;
+            border-radius: 12px;
+            padding: 25px;
+            margin: 25px 0;
+            border-left: 4px solid #667eea;
+        }
+        
+        .alert-card {
+            background: #fffaf0;
+            border: 1px solid #feebc8;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 25px 0;
+        }
+        
+        .alert-title {
+            color: #dd6b20;
+            font-weight: 600;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        /* Buttons */
+        .button {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            padding: 16px 32px;
+            border-radius: 50px;
+            font-weight: 600;
+            font-size: 16px;
+            text-align: center;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+            margin: 10px 0;
+        }
+        
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+        }
+        
+        .button-secondary {
+            background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
+            box-shadow: 0 4px 15px rgba(237, 137, 54, 0.3);
+        }
+        
+        .button-secondary:hover {
+            box-shadow: 0 8px 25px rgba(237, 137, 54, 0.4);
+        }
+        
+        .button-center {
+            text-align: center;
+            margin: 30px 0;
+        }
+        
+        /* Footer */
+        .email-footer {
+            background: #2d3748;
+            color: #cbd5e0;
+            padding: 40px 30px;
+            text-align: center;
+        }
+        
+        .footer-links {
+            margin: 20px 0;
+        }
+        
+        .footer-link {
+            color: #cbd5e0;
+            text-decoration: none;
+            margin: 0 15px;
+            transition: color 0.3s ease;
+        }
+        
+        .footer-link:hover {
+            color: white;
+        }
+        
+        .social-links {
+            margin: 25px 0;
+        }
+        
+        .social-icon {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            margin: 0 8px;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .social-icon:hover {
+            background: #667eea;
+            transform: translateY(-2px);
+        }
+        
+        .copyright {
+            font-size: 14px;
+            opacity: 0.8;
+            margin-top: 20px;
+        }
+        
+        /* Responsive */
+        @media (max-width: 600px) {
+            body {
+                padding: 10px;
+            }
+            
+            .email-content {
+                padding: 30px 20px;
+            }
+            
+            .content-title {
+                font-size: 24px;
+            }
+            
+            .button {
+                display: block;
+                margin: 15px 0;
+            }
+        }
+        
+        /* Utility Classes */
+        .text-center {
+            text-align: center;
+        }
+        
+        .mt-20 {
+            margin-top: 20px;
+        }
+        
+        .mb-20 {
+            margin-bottom: 20px;
+        }
+        
+        .divider {
+            height: 1px;
+            background: #e2e8f0;
+            margin: 30px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="email-header">
+            <div class="logo">
+                <div class="logo-icon">✨</div>
+                {{appName}}
+            </div>
+            <div class="header-subtitle">Empowering Your Digital Journey</div>
+        </div>
+        
+        <div class="email-content">
+            {{{content}}}
+        </div>
+        
+        <div class="email-footer">
+            <div class="social-links">
+                <a href="#" class="social-icon">🐦</a>
+                <a href="#" class="social-icon">📘</a>
+                <a href="#" class="social-icon">📷</a>
+                <a href="#" class="social-icon">💼</a>
+            </div>
+            
+            <div class="footer-links">
+                <a href="{{appUrl}}/help" class="footer-link">Help Center</a>
+                <a href="{{appUrl}}/contact" class="footer-link">Contact Us</a>
+                <a href="{{appUrl}}/privacy" class="footer-link">Privacy</a>
+                <a href="{{appUrl}}/terms" class="footer-link">Terms</a>
+            </div>
+            
+            <div class="copyright">
+                &copy; {{currentYear}} {{appName}}. All rights reserved.<br>
+                <small>If you have any questions, contact our support team at {{supportEmail}}</small>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

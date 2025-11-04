@@ -3,4 +3,4 @@ dotenv.config();
 
 export const PORT = process.env.PORT || 5000;
 export const MONGO_URI = process.env.MONGO_URI;
-export const JWT_SECRET = process.env.JWT_SECRET || "pixora_secret_key";
+export const JWT_SECRET = process.env.JWT_SECRET || "232in2enin3nncijnininci2nini2ncininin";

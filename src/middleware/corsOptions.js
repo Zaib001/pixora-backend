@@ -1,4 +1,7 @@
 export const corsOptions = {
-  origin: ["http://localhost:5173", "https://pixora.vercel.app"],
-  credentials: true,
+  origin: process.env.FRONTEND_URL || "http://localhost:5173", 
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  credentials: true, 
+  allowedHeaders: ["Content-Type", "Authorization"],
+  exposedHeaders: ["Authorization"],
 };

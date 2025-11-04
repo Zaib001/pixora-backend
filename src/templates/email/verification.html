@@ -1,0 +1,32 @@
+<div class="content-header">
+    <div class="content-title">Verify Your Email Address</div>
+    <div class="content-subtitle">Welcome to {{appName}}! Please confirm your email to get started.</div>
+</div>
+
+<p>Hello <strong>{{userName}}</strong>,</p>
+
+<p>Thank you for joining {{appName}}! To complete your registration and activate your account, please verify your email address by clicking the button below:</p>
+
+<div class="button-center">
+    <a href="{{verificationUrl}}" class="button">Verify Email Address</a>
+</div>
+
+<div class="info-card">
+    <p><strong>Can't click the button?</strong> Copy and paste this link into your browser:</p>
+    <p style="word-break: break-all; background: white; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0; margin-top: 10px;">
+        <a href="{{verificationUrl}}" style="color: #667eea; text-decoration: none;">{{verificationUrl}}</a>
+    </p>
+</div>
+
+<div class="alert-card">
+    <div class="alert-title">⏰ Important</div>
+    <p>This verification link will expire in <strong>24 hours</strong>. If you don't verify your email within this time, you'll need to request a new verification link.</p>
+</div>
+
+<div class="divider"></div>
+
+<p><strong>Didn't create an account?</strong><br>
+If you didn't request this verification email, please ignore it. Your email address will not be used for any purpose.</p>
+
+<p>Welcome aboard!<br>
+<strong>The {{appName}} Team</strong></p>
