@@ -3,6 +3,7 @@ import helmet from "helmet";
 import compression from "compression";
 import morgan from "morgan";
 import { corsMiddleware } from "./middleware/customCors.js"; // Import custom CORS
+import { connectDB } from "./config/db.js"; // Import DB connection
 import { setupLogger } from "./utils/logger.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import authRoutes from "./routes/authRoutes.js";
@@ -19,6 +20,9 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
+
+// ✅ Initialize database connection
+connectDB();
 
 // ✅ 1. CORS middleware - MUST BE FIRST
 app.use(corsMiddleware);
