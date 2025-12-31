@@ -429,11 +429,6 @@ class CompetAPIProvider extends BaseProvider {
                 Object.assign(headers, formdata.getHeaders());
             }
 
-                'Authorization': 'Bearer [REDACTED]',
-                'Content-Type': headers['Content-Type'] || 'multipart/form-data',
-                'Content-Length': headers['Content-Length']
-            });
-
             // Try with axios first
             let response;
             try {

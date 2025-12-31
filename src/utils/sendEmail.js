@@ -10,13 +10,13 @@ const __dirname = path.dirname(__filename);
 
 // Email configuration
 const emailConfig = {
-  service: config.email.service || 'gmail',
-  host: config.email.host || 'smtp.gmail.com',
-  port: config.email.port || 587,
-  secure: config.email.port === 465,
+  service: config.email?.service || 'gmail',
+  host: config.email?.host || 'smtp.gmail.com',
+  port: parseInt(config.email?.port) || 587,
+  secure: parseInt(config.email?.port) === 465,
   auth: {
-    user: config.email.auth.user,
-    pass: config.email.auth.pass
+    user: config.email?.user,
+    pass: config.email?.pass
   },
   pool: true,
   maxConnections: 5,
