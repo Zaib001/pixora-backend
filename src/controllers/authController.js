@@ -87,7 +87,7 @@ export const registerUser = async (req, res) => {
       password,
       country: country || "",
       language: language || "en",
-      verified: false, // IMPORTANT: Keep as false for OTP verification
+      verified: false,
       otpCode: otp,
       otpExpires: new Date(otpExpires),
       freeGenerationsLeft: 3,
@@ -122,22 +122,11 @@ export const registerUser = async (req, res) => {
       otp: otp
     });
 
-    // Generate token (for after OTP verification)
-    const token = generateToken(user._id);
-
     return res.status(201).json({
       success: true,
       message: "User registered successfully. Please check your email for OTP.",
-      token, // Send token so user doesn't have to login after OTP verification
       requiresOtpVerification: true,
       otpSent: true,
-      // Optional: Include user info (without sensitive data)
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        requiresOtpVerification: true
-      }
     });
   } catch (error) {
     console.error("❌ Register Error:", error);
