@@ -28,6 +28,24 @@ const userSchema = new mongoose.Schema(
       index: true,
     },
 
+    bio: {
+      type: String,
+      maxlength: [500, "Bio cannot exceed 500 characters"],
+      default: "",
+    },
+
+    location: {
+      type: String,
+      maxlength: [100, "Location cannot exceed 100 characters"],
+      default: "",
+    },
+
+    website: {
+      type: String,
+      maxlength: [100, "Website cannot exceed 100 characters"],
+      default: "",
+    },
+
     password: {
       type: String,
       required: [true, "Password is required"],
@@ -59,6 +77,16 @@ const userSchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: [0, "Credits cannot be negative"],
+    },
+
+    freeGenerationsLeft: {
+      type: Number,
+      default: 3,
+    },
+
+    isFreeTierExhausted: {
+      type: Boolean,
+      default: false,
     },
 
     creditHistory: [
@@ -125,12 +153,12 @@ const userSchema = new mongoose.Schema(
     },
 
     // OTP FIELDS - REMOVED select: false
-    otpCode: { 
-      type: String 
+    otpCode: {
+      type: String
     },
 
-    otpExpires: { 
-      type: Date 
+    otpExpires: {
+      type: Date
     },
 
     resetPasswordToken: {
@@ -162,6 +190,47 @@ const userSchema = new mongoose.Schema(
     twoFactorSecret: {
       type: String,
       select: false,
+    },
+
+    // Stripe Integration
+    stripeCustomerId: {
+      type: String,
+      unique: true,
+      sparse: true,
+      index: true,
+    },
+
+    // Subscription fields
+    subscriptionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Subscription",
+    },
+
+    subscriptionPlan: {
+      type: String,
+      enum: ["free", "pro", "enterprise"],
+      default: "free",
+    },
+
+    subscriptionStatus: {
+      type: String,
+      enum: ["active", "inactive", "canceled", "past_due"],
+      default: "inactive",
+    },
+
+    subscriptionEndsAt: {
+      type: Date,
+    },
+
+    // Free Tier Fields
+    freeGenerationsLeft: {
+      type: Number,
+      default: 3, // Give 3 free generations by default
+    },
+
+    isFreeTierExhausted: {
+      type: Boolean,
+      default: false,
     },
   },
   {
@@ -250,7 +319,7 @@ userSchema.methods = {
     if (!this.otpCode || !this.otpExpires) {
       return false;
     }
-    
+
     if (this.otpExpires < Date.now()) {
       this.otpCode = undefined;
       this.otpExpires = undefined;
@@ -258,13 +327,13 @@ userSchema.methods = {
     }
 
     const isValid = this.otpCode === enteredOtp;
-    
+
     if (isValid) {
       this.verified = true;
       this.otpCode = undefined;
       this.otpExpires = undefined;
     }
-    
+
     return isValid;
   },
 
@@ -328,6 +397,53 @@ userSchema.methods = {
       balance: this.credits,
     });
     return this.save();
+  },
+
+  // Check if user has free generations available
+  checkFreeTierAvailability: function () {
+    return this.freeGenerationsLeft > 0;
+  },
+
+  // Use a free generation
+  useFreeGeneration: async function (description = "Free tier generation") {
+    if (this.freeGenerationsLeft <= 0) {
+      throw new Error("No free generations remaining");
+    }
+
+    this.freeGenerationsLeft -= 1;
+
+    // Mark as exhausted if no more free generations
+    if (this.freeGenerationsLeft === 0) {
+      this.isFreeTierExhausted = true;
+    }
+
+    // Track in credit history for transparency
+    this.creditHistory.push({
+      amount: 0,
+      type: "usage",
+      description: `${description} (Free Tier - ${3 - this.freeGenerationsLeft}/3)`,
+      balance: this.credits,
+    });
+
+    return this.save();
+  },
+
+  // Restore free generation on failure
+  restoreFreeGeneration: async function (description = "Generation failed - restored") {
+    if (this.freeGenerationsLeft < 3) {
+      this.freeGenerationsLeft += 1;
+      this.isFreeTierExhausted = false;
+
+      this.creditHistory.push({
+        amount: 0,
+        type: "refund",
+        description,
+        balance: this.credits,
+      });
+
+      return this.save();
+    }
+    return this;
   },
 };
 

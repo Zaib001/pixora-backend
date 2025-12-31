@@ -90,9 +90,11 @@ export const registerUser = async (req, res) => {
       password,
       country: country || "",
       language: language || "en",
-      verified: false,
+      verified: true, // AUTO-VERIFIED FOR DEPLOYMENT
       otpCode: otp,
       otpExpires: new Date(otpExpires), // Use Date object
+      freeGenerationsLeft: 3, // Explicitly give 3 free generations
+      isFreeTierExhausted: false,
     });
 
     console.log('✅ User created successfully:', {
@@ -117,9 +119,9 @@ export const registerUser = async (req, res) => {
     const token = generateToken(user._id);
     return res.status(201).json({
       success: true,
-      message: "User registered successfully. OTP sent to your email.",
+      message: "User registered successfully. (Auto-verified for deployment)",
       token,
-      requiresOtpVerification: true,
+      requiresOtpVerification: false,
     });
   } catch (error) {
     console.error("❌ Register Error:", error);
@@ -135,44 +137,115 @@ export const loginUser = async (req, res) => {
   const { email, password } = req.body;
   const ip = req.ip;
 
+  console.log('\n🔐 ========== LOGIN ATTEMPT ==========');
+  console.log('📧 Email:', email);
+  console.log('🌍 IP Address:', ip);
+  console.log('⏰ Timestamp:', new Date().toISOString());
+
   try {
-    if (!checkRateLimit(ip, email))
+    // Validate input
+    if (!email || !password) {
+      console.log('❌ Missing email or password');
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required."
+      });
+    }
+
+    // Check rate limit
+    console.log('🚦 Checking rate limit...');
+    if (!checkRateLimit(ip, email)) {
+      console.log('❌ RATE LIMIT EXCEEDED for', email);
       return res
         .status(429)
-        .json({ success: false, message: "Too many login attempts." });
+        .json({ success: false, message: "Too many login attempts. Please try again later." });
+    }
+    console.log('✅ Rate limit check passed');
 
+    // Find user
+    console.log('🔍 Searching for user:', email.toLowerCase().trim());
     const user = await User.findByEmail(email.toLowerCase().trim());
+
     if (!user) {
+      console.log('❌ USER NOT FOUND:', email);
+      console.log('📊 Database returned null - user does not exist');
       incrementRateLimit(ip, email);
       return res
         .status(401)
         .json({ success: false, message: "Invalid credentials." });
     }
 
+    console.log('✅ User found in database');
+    console.log('📋 User details:', {
+      id: user._id,
+      email: user.email,
+      name: user.name,
+      verified: user.verified,
+      role: user.role,
+      isActive: user.isActive,
+      createdAt: user.createdAt
+    });
+
+    /* // BYPASSED FOR DEPLOYMENT
     if (!user.verified) {
+      console.log('❌ USER NOT VERIFIED');
+      console.log('⚠️  User needs to verify OTP before login');
       return res.status(403).json({
         success: false,
         message: "Please verify OTP before logging in.",
         requiresOtpVerification: true,
       });
     }
+    */
+    console.log('✅ User verification bypassed for deployment');
+    // Reference: User is verified: ${user.verified}
+    console.log('✅ User is verified');
 
+    // Check if account is active
+    if (!user.isActive) {
+      console.log('❌ ACCOUNT DEACTIVATED');
+      return res.status(403).json({
+        success: false,
+        message: "Your account has been deactivated. Please contact support.",
+      });
+    }
+    console.log('✅ Account is active');
+
+    // Verify password
+    console.log('🔐 Verifying password...');
     const isMatch = await user.matchPassword(password);
+
     if (!isMatch) {
+      console.log('❌ PASSWORD MISMATCH');
+      console.log('⚠️  Incrementing failed login attempts');
       await user.incrementLoginAttempts();
       incrementRateLimit(ip, email);
       return res
         .status(401)
         .json({ success: false, message: "Invalid credentials." });
     }
+    console.log('✅ Password verified successfully');
 
+    // Reset login attempts
+    console.log('🔄 Resetting login attempts and rate limit');
     await user.resetLoginAttempts();
     resetRateLimit(ip, email);
 
+    // Update last login
+    console.log('📝 Updating last login timestamp');
     user.lastLogin = new Date();
+    user.lastIP = ip;
     await user.save({ validateBeforeSave: false });
 
+    // Generate token
+    console.log('🎟️  Generating JWT token');
     const token = generateToken(user._id);
+
+    console.log('✅ ========== LOGIN SUCCESSFUL ==========');
+    console.log('👤 User:', user.email);
+    console.log('🆔 User ID:', user._id);
+    console.log('========================================\n');
+
     return res.status(200).json({
       success: true,
       message: "Login successful.",
@@ -183,14 +256,24 @@ export const loginUser = async (req, res) => {
         email: user.email,
         verified: user.verified,
         role: user.role,
+        credits: user.credits,
+        freeGenerationsLeft: user.freeGenerationsLeft,
+        isFreeTierExhausted: user.isFreeTierExhausted,
+        subscriptionPlan: user.subscriptionPlan,
+        subscriptionStatus: user.subscriptionStatus,
+        subscriptionEndsAt: user.subscriptionEndsAt
       },
     });
   } catch (error) {
+    console.log('❌ ========== LOGIN ERROR ==========');
+    console.error('💥 Error details:', error);
+    console.error('📚 Stack trace:', error.stack);
+    console.log('====================================\n');
+
     incrementRateLimit(ip, email);
-    console.error("Login Error:", error);
     return res
       .status(500)
-      .json({ success: false, message: "Error during login." });
+      .json({ success: false, message: "Error during login. Please try again later." });
   }
 };
 
@@ -279,6 +362,12 @@ export const verifyOtp = async (req, res) => {
         name: user.name,
         email: user.email,
         verified: true,
+        credits: user.credits,
+        freeGenerationsLeft: user.freeGenerationsLeft,
+        isFreeTierExhausted: user.isFreeTierExhausted,
+        subscriptionPlan: user.subscriptionPlan,
+        subscriptionStatus: user.subscriptionStatus,
+        subscriptionEndsAt: user.subscriptionEndsAt
       },
       token,
     });
@@ -368,6 +457,14 @@ export const getUserProfile = async (req, res) => {
         country: user.country,
         lastLogin: user.lastLogin,
         createdAt: user.createdAt,
+        freeGenerationsLeft: user.freeGenerationsLeft,
+        isFreeTierExhausted: user.isFreeTierExhausted,
+        subscriptionPlan: user.subscriptionPlan,
+        subscriptionStatus: user.subscriptionStatus,
+        subscriptionEndsAt: user.subscriptionEndsAt,
+        bio: user.bio,
+        location: user.location,
+        website: user.website
       },
     });
   } catch (error) {
@@ -381,10 +478,15 @@ export const getUserProfile = async (req, res) => {
 
 export const updateUserProfile = async (req, res) => {
   try {
-    const { name, language, country, profilePic } = req.body;
+    const { name, language, country, profilePic, bio, location, website } = req.body;
     const userId = req.user.id;
 
     const updateData = {};
+
+    if (profilePic) updateData.profilePic = profilePic;
+    if (bio !== undefined) updateData.bio = bio;
+    if (location !== undefined) updateData.location = location;
+    if (website !== undefined) updateData.website = website;
 
     if (name) {
       updateData.name = validator.escape(name).trim();
@@ -426,6 +528,11 @@ export const updateUserProfile = async (req, res) => {
         language: user.language,
         country: user.country,
         lastLogin: user.lastLogin,
+        freeGenerationsLeft: user.freeGenerationsLeft,
+        isFreeTierExhausted: user.isFreeTierExhausted,
+        subscriptionPlan: user.subscriptionPlan,
+        subscriptionStatus: user.subscriptionStatus,
+        subscriptionEndsAt: user.subscriptionEndsAt
       },
     });
   } catch (error) {

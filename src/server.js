@@ -10,7 +10,10 @@ const startServer = async () => {
       console.log(`Pixora backend running on port ${PORT}`);
     });
 
- 
+    // Increase timeout to 10 minutes for AI video generation
+    server.setTimeout(600000);
+
+
     const shutdown = (signal) => {
       console.log(`\n ${signal} received. Shutting down gracefully...`);
       server.close(() => {
