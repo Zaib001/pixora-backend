@@ -23,6 +23,13 @@ const contentSchema = new mongoose.Schema(
         thumbnailUrl: {
             type: String,
         },
+        remoteUrl: {
+            type: String,
+        },
+        generationId: {
+            type: String,
+            index: true
+        },
         prompt: {
             type: String,
             required: true,
@@ -33,7 +40,7 @@ const contentSchema = new mongoose.Schema(
         },
         isPublic: {
             type: Boolean,
-            default: false, // Default false, but Free Tier force updates to true
+            default: false,
         },
         isWatermarked: {
             type: Boolean,
@@ -44,10 +51,8 @@ const contentSchema = new mongoose.Schema(
             default: 0,
         },
         metadata: {
-            duration: Number,
-            width: Number,
-            height: Number,
-            format: String,
+            type: mongoose.Schema.Types.Mixed,
+            default: {}
         },
         status: {
             type: String,

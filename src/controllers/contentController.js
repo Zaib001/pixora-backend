@@ -199,7 +199,7 @@ export const generateContent = async (req, res) => {
                 // For locally saved images
                 const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
                 resultUrl = `${baseUrl}/api/content/stream/image/${generationId}`;
-                remoteUrl = generationResult.localPath;
+                remoteUrl = generationResult.remoteUrl; // MUST be the remote URL, not localPath!
             } else {
                 // Fallback for other types
                 resultUrl = generationResult.url || generationResult.localUrl;
@@ -248,10 +248,10 @@ export const generateContent = async (req, res) => {
             },
             generationId: generationId,
             metadata: {
+                ...metadataFromProvider,
                 duration: type === 'video' ? duration : 0,
                 aspectRatio: aspectRatio,
-                localFilePath: metadataFromProvider.localPath,
-                ...metadataFromProvider
+                localFilePath: metadataFromProvider.localPath // Explicitly map this
             }
         });
 
@@ -545,7 +545,6 @@ export const streamImage = async (req, res) => {
                 if (fs.existsSync(publicPath)) {
                     localPath = publicPath;
                 } else {
-                    // Check Vercel /tmp directory
                     const tmpPath = path.join("/", "tmp", "generated", `${id}.png`);
                     if (fs.existsSync(tmpPath)) {
                         localPath = tmpPath;
