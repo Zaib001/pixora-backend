@@ -544,6 +544,12 @@ export const streamImage = async (req, res) => {
                 const publicPath = path.join(process.cwd(), 'public', 'generated', `${id}.png`);
                 if (fs.existsSync(publicPath)) {
                     localPath = publicPath;
+                } else {
+                    // Check Vercel /tmp directory
+                    const tmpPath = path.join("/", "tmp", "generated", `${id}.png`);
+                    if (fs.existsSync(tmpPath)) {
+                        localPath = tmpPath;
+                    }
                 }
             }
 
@@ -718,6 +724,18 @@ export const streamVideo = async (req, res) => {
                     if (fs.existsSync(testPath)) {
                         localPath = testPath;
                         break;
+                    }
+                }
+
+                if (!localPath) {
+                    // Check Vercel /tmp directory
+                    const tmpPath = path.join("/", "tmp", "generated");
+                    for (const filename of possibleFilenames2) {
+                        const testPath = path.join(tmpPath, filename);
+                        if (fs.existsSync(testPath)) {
+                            localPath = testPath;
+                            break;
+                        }
                     }
                 }
             }

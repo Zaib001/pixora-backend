@@ -769,7 +769,13 @@ class CompetAPIProvider extends BaseProvider {
 
                 // We MUST save this to serve it via stream, as we can't stream a non-existent remote URL
                 const imageId = `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                const outputDir = path.join(process.cwd(), "public", "generated");
+
+                // Use /tmp for Vercel deployment, otherwise use public/generated
+                const isVercel = process.env.VERCEL || process.env.NODE_ENV === 'production';
+                const outputDir = isVercel
+                    ? path.join("/", "tmp", "generated")
+                    : path.join(process.cwd(), "public", "generated");
+
                 if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
                 const outputPath = path.join(outputDir, `${imageId}.png`);
