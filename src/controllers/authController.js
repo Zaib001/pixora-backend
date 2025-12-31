@@ -44,70 +44,108 @@ export const generateOtp = () => {
 };
 
 export const registerUser = async (req, res) => {
-  console.log('=== REGISTRATION START ===');
-
   try {
-    console.log('1. Validating input...');
     const { name, email, password, country, language } = req.body;
 
-    // ... validation code ...
-    console.log('2. Validation passed');
+    // Validation
+    const validationErrors = [];
+    if (!name || name.trim().length < 2)
+      validationErrors.push("Name must be at least 2 characters.");
+    if (!validator.isEmail(email))
+      validationErrors.push("Invalid email address.");
+    if (
+      !password ||
+      password.length < 8 ||
+      !/[A-Z]/.test(password) ||
+      !/[a-z]/.test(password) ||
+      !/[0-9]/.test(password)
+    ) {
+      validationErrors.push(
+        "Password must include uppercase, lowercase, and number."
+      );
+    }
+    if (validationErrors.length)
+      return res.status(400).json({ success: false, errors: validationErrors });
 
-    console.log('3. Checking for duplicate user...');
+    // Duplicate check
     let user = await User.findOne({ email });
-    console.log('4. Duplicate check complete');
-
-    console.log('5. Generating OTP...');
-    const otp = generateOtp();
-    console.log('6. OTP generated:', otp);
-
-    console.log('7. Creating user in database...');
-    user = await User.create({
-      // ... user data
-    });
-    console.log('8. User created with ID:', user._id);
-
-    console.log('9. Sending OTP email...');
-    const emailResult = await sendOtpEmail(user.email, otp, user.name);
-    console.log('10. Email result:', emailResult.success ? 'Success' : 'Failed');
-
-    if (!emailResult.success) {
-      console.log('11. Email failed, deleting user...');
-      await User.findByIdAndDelete(user._id);
-      console.log('12. User deleted, sending error response');
-      return res.status(500).json({
+    if (user) {
+      return res.status(409).json({
         success: false,
-        message: "Failed to send verification email.",
+        message: "User already exists."
       });
     }
 
-    console.log('11. Email sent successfully');
-    console.log('12. Generating token...');
-    const token = generateToken(user._id);
-    console.log('13. Token generated');
+    // Generate OTP
+    const otp = generateOtp();
+    const otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
 
-    console.log('14. Sending success response');
+    // Create user with OTP fields
+    user = await User.create({
+      name,
+      email: email.toLowerCase().trim(),
+      password,
+      country: country || "",
+      language: language || "en",
+      verified: false,
+      otpCode: otp,
+      otpExpires: new Date(otpExpires),
+      freeGenerationsLeft: 3,
+      isFreeTierExhausted: false,
+    });
+
+    console.log('📧 Attempting to send OTP email to:', user.email);
+
+    // Send OTP email WITH ERROR HANDLING
+    const emailResult = await sendOtpEmail(user.email, otp, user.name);
+
+    if (!emailResult.success) {
+      console.error('❌ Failed to send OTP email:', emailResult);
+
+      // OPTION 1: Delete the user if email fails (recommended)
+      await User.findByIdAndDelete(user._id);
+
+      // OPTION 2: Keep user but mark email as failed (alternative)
+      // user.emailSent = false;
+      // await user.save();
+
+      return res.status(500).json({
+        success: false,
+        message: "Failed to send verification email. Please try again.",
+        error: emailResult.userMessage || "Email service error"
+      });
+    }
+
+    console.log('✅ OTP email sent successfully!', {
+      messageId: emailResult.messageId,
+      email: user.email,
+      otp: otp
+    });
+
     return res.status(201).json({
       success: true,
-      message: "User registered successfully.",
-      token,
+      message: "User registered successfully. Please check your email for OTP.",
       requiresOtpVerification: true,
       otpSent: true,
     });
-
   } catch (error) {
-    console.error('=== REGISTRATION ERROR ===');
-    console.error('Error at step: Unknown');
-    console.error('Error details:', {
-      message: error.message,
-      name: error.name,
-      stack: error.stack,
-      code: error.code
-    });
+    console.error("❌ Register Error:", error);
 
-    return res.status(500).json({
+    // Handle specific errors
+    let errorMessage = "Error during registration.";
+    let statusCode = 500;
+
+    if (error.name === 'ValidationError') {
+      statusCode = 400;
+      errorMessage = Object.values(error.errors).map(err => err.message).join(', ');
+    } else if (error.code === 11000) { // MongoDB duplicate key
+      statusCode = 409;
+      errorMessage = "User already exists.";
+    }
+
+    return res.status(statusCode).json({
       success: false,
-      message: "Registration failed: " + error.message,
+      message: errorMessage,
     });
   }
 };
