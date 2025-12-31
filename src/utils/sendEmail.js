@@ -389,7 +389,7 @@ export const sendVerificationEmail = async (to, verificationUrl, userName = 'Use
 };
 
 export const sendOtpEmail = async (to, otp, name = 'User') => {
-  await sendEmail({
+  return await sendEmail({
     to,
     subject: "Your Verification Code - AI Video Platform",
     html: `

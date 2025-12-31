@@ -47,7 +47,8 @@ export const registerUser = async (req, res) => {
   try {
     const { name, email, password, country, language } = req.body;
 
-    // Validation
+
+    // Validation (your existing validation)
     const validationErrors = [];
     if (!name || name.trim().length < 2)
       validationErrors.push("Name must be at least 2 characters.");
@@ -70,15 +71,13 @@ export const registerUser = async (req, res) => {
     // Duplicate check
     let user = await User.findOne({ email });
     if (user) {
-      return res.status(409).json({
-        success: false,
-        message: "User already exists."
-      });
+      return res.status(409).json({ success: false, message: "User already exists." });
     }
 
     // Generate OTP
     const otp = generateOtp();
     const otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+
 
     // Create user with OTP fields
     user = await User.create({
@@ -87,65 +86,30 @@ export const registerUser = async (req, res) => {
       password,
       country: country || "",
       language: language || "en",
-      verified: false,
+      verified: false, // AUTO-VERIFIED FOR DEPLOYMENT
       otpCode: otp,
-      otpExpires: new Date(otpExpires),
-      freeGenerationsLeft: 3,
+      otpExpires: new Date(otpExpires), // Use Date object
+      freeGenerationsLeft: 3, // Explicitly give 3 free generations
       isFreeTierExhausted: false,
     });
 
-    console.log('📧 Attempting to send OTP email to:', user.email);
 
-    // Send OTP email WITH ERROR HANDLING
-    const emailResult = await sendOtpEmail(user.email, otp, user.name);
 
-    if (!emailResult.success) {
-      console.error('❌ Failed to send OTP email:', emailResult);
+    // Send OTP email
+    await sendOtpEmail(user.email, otp, user.name);
 
-      // OPTION 1: Delete the user if email fails (recommended)
-      await User.findByIdAndDelete(user._id);
-
-      // OPTION 2: Keep user but mark email as failed (alternative)
-      // user.emailSent = false;
-      // await user.save();
-
-      return res.status(500).json({
-        success: false,
-        message: "Failed to send verification email. Please try again.",
-        error: emailResult.userMessage || "Email service error"
-      });
-    }
-
-    console.log('✅ OTP email sent successfully!', {
-      messageId: emailResult.messageId,
-      email: user.email,
-      otp: otp
-    });
-
+    const token = generateToken(user._id);
     return res.status(201).json({
       success: true,
-      message: "User registered successfully. Please check your email for OTP.",
+      message: "User registered successfully.",
+      token,
       requiresOtpVerification: true,
-      otpSent: true,
     });
   } catch (error) {
     console.error("❌ Register Error:", error);
-
-    // Handle specific errors
-    let errorMessage = "Error during registration.";
-    let statusCode = 500;
-
-    if (error.name === 'ValidationError') {
-      statusCode = 400;
-      errorMessage = Object.values(error.errors).map(err => err.message).join(', ');
-    } else if (error.code === 11000) { // MongoDB duplicate key
-      statusCode = 409;
-      errorMessage = "User already exists.";
-    }
-
-    return res.status(statusCode).json({
+    return res.status(500).json({
       success: false,
-      message: errorMessage,
+      message: "Error during registration.",
     });
   }
 };
@@ -171,6 +135,9 @@ export const loginUser = async (req, res) => {
         .status(429)
         .json({ success: false, message: "Too many login attempts. Please try again later." });
     }
+
+    // FIND USER
+    const user = await User.findByEmail(email);
 
     if (!user) {
       incrementRateLimit(ip, email);

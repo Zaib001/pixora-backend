@@ -1,6 +1,10 @@
 import jwt from "jsonwebtoken";
 
 const generateToken = (userId) => {
+  if (!process.env.JWT_SECRET) {
+    console.error("❌ JWT_SECRET is not defined in environment variables!");
+    throw new Error("Internal server error: Missing security configuration.");
+  }
   return jwt.sign(
     {
       id: userId,
@@ -16,6 +20,10 @@ const generateToken = (userId) => {
 };
 
 export const verifyToken = (token) => {
+  if (!process.env.JWT_SECRET) {
+    console.error("❌ JWT_SECRET is not defined in environment variables!");
+    throw new Error("Internal server error: Missing security configuration.");
+  }
   try {
     return jwt.verify(token, process.env.JWT_SECRET, {
       issuer: process.env.JWT_ISSUER || "Pixora",
