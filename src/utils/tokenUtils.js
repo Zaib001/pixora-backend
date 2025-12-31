@@ -6,7 +6,7 @@ const generateToken = (userId) => {
       id: userId,
       iat: Math.floor(Date.now() / 1000)
     },
-    process.env.JWT_SECRET || "232in2enin3nncijnininci2nini2ncininin",
+    process.env.JWT_SECRET,
     {
       expiresIn: process.env.JWT_EXPIRES_IN || "30d",
       issuer: process.env.JWT_ISSUER || "Pixora",
