@@ -13,7 +13,6 @@ const subscriptionSchema = new mongoose.Schema(
             type: String,
             unique: true,
             required: [true, "Stripe subscription ID is required"],
-            index: true,
         },
 
         stripeCustomerId: {

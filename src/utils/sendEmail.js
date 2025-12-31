@@ -25,11 +25,16 @@ const emailConfig = {
   rateLimit: 5,
   // REMOVED duplicate 'secure' property
   tls: {
-    rejectUnauthorized: config.nodeEnv === 'production'
+    rejectUnauthorized: config.nodeEnv === 'production',
+    // Helpful if server has self-signed certs or weird SMTP issues
+    ciphers: 'SSLv3'
   },
   // Add for better debugging
   debug: true,  // This will show SMTP communication
-  logger: true  // This will log info
+  logger: true, // This will log info
+  connectionTimeout: 10000, // 10 seconds
+  greetingTimeout: 5000,    // 5 seconds
+  socketTimeout: 30000      // 30 seconds
 };
 
 console.log('📧 Email Config Check:', {
