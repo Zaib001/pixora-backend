@@ -8,12 +8,12 @@ import handlebars from 'handlebars';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Email configuration
+// Email configuration - FIXED VERSION
 const emailConfig = {
   service: config.email?.service || 'gmail',
   host: config.email?.host || 'smtp.gmail.com',
   port: parseInt(config.email?.port) || 587,
-  secure: parseInt(config.email?.port) === 465,
+  secure: parseInt(config.email?.port) === 465,  // true for 465, false for 587
   auth: {
     user: config.email?.user,
     pass: config.email?.pass
@@ -23,12 +23,22 @@ const emailConfig = {
   maxMessages: 100,
   rateDelta: 1000,
   rateLimit: 5,
-  secure: config.email.port === 465,
+  // REMOVED duplicate 'secure' property
   tls: {
     rejectUnauthorized: config.nodeEnv === 'production'
-  }
+  },
+  // Add for better debugging
+  debug: true,  // This will show SMTP communication
+  logger: true  // This will log info
 };
 
+console.log('📧 Email Config Check:', {
+  user: config.email?.user ? 'Set' : 'Not set',
+  pass: config.email?.pass ? 'Set' : 'Not set',
+  host: emailConfig.host,
+  port: emailConfig.port,
+  secure: emailConfig.secure
+});
 
 // Create transporter
 let transporter;
@@ -37,14 +47,22 @@ try {
   transporter = nodemailer.createTransport(emailConfig);
 
   // Verify connection configuration
-  transporter.verify((error) => {
+  transporter.verify((error, success) => {
     if (error) {
-      console.error('Email transporter verification failed:', error);
+      console.error('❌ Email transporter verification failed:', error);
+      console.error('🔧 Debug Info:', {
+        errorCode: error.code,
+        errorCommand: error.command,
+        user: config.email?.user,
+        hasPassword: !!config.email?.pass
+      });
     } else {
+      console.log('✅ SMTP Server is ready to take messages');
+      console.log('✅ Connected to:', emailConfig.host);
     }
   });
 } catch (error) {
-  console.error('Failed to create email transporter:', error);
+  console.error('❌ Failed to create email transporter:', error);
   transporter = null;
 }
 
@@ -174,11 +192,12 @@ const defaultEmailData = {
 const sendEmail = async (options) => {
   // Check if email service is configured
   if (!transporter) {
-    console.warn('📧 Email transporter not configured. Email not sent:', {
-      to: options.to,
-      subject: options.subject,
-    });
-    return { success: false, message: 'Email service not configured' };
+    console.error('❌ Email transporter not configured');
+    return {
+      success: false,
+      message: 'Email service not configured',
+      errorType: 'SERVICE_DISABLED'
+    };
   }
 
   try {
@@ -189,7 +208,7 @@ const sendEmail = async (options) => {
       text,
       template = 'base',
       templateData = {},
-      from = `"AI Video Platform" <${emailConfig.auth.user}>`,
+      from = `"AI Video Platform" <${config.email?.user || emailConfig.auth.user}>`,
       attachments = [],
     } = options;
 
@@ -201,8 +220,10 @@ const sendEmail = async (options) => {
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(to)) {
-      throw new Error('Invalid recipient email address');
+      throw new Error('Invalid recipient email address: ' + to);
     }
+
+    console.log('📤 Attempting to send email to:', to);
 
     // Prepare template data
     const emailData = {
@@ -228,17 +249,11 @@ const sendEmail = async (options) => {
 
     // Generate plain text version if not provided
     if (!finalText && finalHtml) {
-      // Simple HTML to text conversion
       finalText = finalHtml
         .replace(/<br\s*\/?>/gi, '\n')
         .replace(/<p\s*\/?>/gi, '\n\n')
         .replace(/<[^>]*>/g, '')
         .replace(/&nbsp;/g, ' ')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
         .trim();
     }
 
@@ -248,49 +263,54 @@ const sendEmail = async (options) => {
       to,
       subject,
       html: finalHtml,
-      text: finalText,
+      text: finalText || 'Email content',
       attachments,
       // Important headers for deliverability
       headers: {
         'X-Priority': '3',
         'X-Mailer': 'Node.js',
-        'List-Unsubscribe': `<mailto:${defaultEmailData.supportEmail}?subject=Unsubscribe>`,
       },
     };
 
-    // Add reply-to if different from from address
-    if (config.email.replyTo) {
+    // Add reply-to if configured
+    if (config.email?.replyTo) {
       mailOptions.replyTo = config.email.replyTo;
     }
 
-    // COMMENTED OUT FOR DEPLOYMENT TESTING
-    /*
+    // ====== UNCOMMENT THIS SECTION ======
+    console.log('🚀 ACTUALLY SENDING EMAIL via Gmail...');
+
     const sendPromise = transporter.sendMail(mailOptions);
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Email sending timeout')), 30000); // 30 second timeout
+      setTimeout(() => reject(new Error('Email sending timeout')), 30000);
     });
 
     const result = await Promise.race([sendPromise, timeoutPromise]);
-    */
+    // ====== END UNCOMMENT ======
 
-    // Log simulated success
+    console.log('✅ Email sent successfully!', {
+      messageId: result.messageId,
+      response: result.response,
+      envelope: result.envelope,
+    });
 
     return {
       success: true,
-      messageId: 'simulated-id-' + Date.now(),
-      response: '250 2.0.0 OK',
-      envelope: { from: from, to: [to] },
+      messageId: result.messageId,
+      response: result.response || '250 2.0.0 OK',
+      envelope: result.envelope,
     };
   } catch (error) {
     console.error('❌ Email sending failed:', {
       to: options.to,
       subject: options.subject,
       error: error.message,
-      stack: error.stack,
+      errorCode: error.code,
+      errorCommand: error.command,
       timestamp: new Date().toISOString(),
     });
 
-    // Categorize errors for better handling
+    // Categorize errors
     let errorType = 'SEND_FAILED';
     let userMessage = 'Failed to send email';
 
