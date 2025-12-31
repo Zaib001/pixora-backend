@@ -2,7 +2,7 @@ import express from "express";
 import helmet from "helmet";
 import cors from "cors";
 import compression from "compression";
-import morgan from "morgan"; // ✅ added
+import morgan from "morgan";
 import { corsOptions } from "./middleware/corsOptions.js";
 import { setupLogger } from "./utils/logger.js";
 import { errorHandler } from "./middleware/errorHandler.js";
@@ -21,28 +21,37 @@ dotenv.config();
 
 const app = express();
 
-// ✅ Core middlewares
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true }));
+// ✅ 1. CORS FIRST - This is critical!
+app.use(cors(corsOptions));
+
+// ✅ 2. Add explicit OPTIONS handler for preflight
+app.options('*', cors(corsOptions));
+
+// ✅ 3. Security headers
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
 }));
-app.use(cors(corsOptions));
-app.use(compression());
 
-
-// ✅ Morgan setup for API logging
-// 'dev' = colored concise logs for development
-// You can use 'combined' for Apache-style logs in production
+// ✅ 4. Logging
 app.use(morgan("dev"));
-
-// ✅ Stripe webhook route (MUST be before express.json() to get raw body)
-app.use("/api/payments/webhook", paymentRoutes);
-
-// ✅ Custom Winston / Logger setup
 setupLogger(app);
 
-// ✅ Routes
+// ✅ 5. Compression
+app.use(compression());
+
+// ✅ 6. Stripe webhook route - MUST be before express.json()
+// Create a separate router for webhook that doesn't use JSON parsing
+const stripeWebhookRouter = express.Router();
+// Import your webhook handler function directly
+import { handleStripeWebhook } from "./controllers/paymentController.js";
+stripeWebhookRouter.post("/webhook", handleStripeWebhook);
+app.use("/api/payments", stripeWebhookRouter);
+
+// ✅ 7. Now parse JSON for all other routes
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true }));
+
+// ✅ 8. Routes
 app.get("/", (req, res) => {
   res.status(200).json({
     success: true,
@@ -54,7 +63,7 @@ app.get("/", (req, res) => {
 
 app.use("/api/auth", authRoutes);
 app.use("/api/credits", creditRoutes);
-app.use("/api/payments", paymentRoutes);
+app.use("/api/payments", paymentRoutes); // Other payment routes (not webhook)
 app.use("/api/admin", adminRoutes);
 app.use("/api/content", contentRoutes);
 app.use("/api/templates", templateRoutes);
@@ -63,7 +72,7 @@ app.use("/api/prompts", promptRoutes);
 app.use("/api", publicRoutes);
 app.use("/api", routes);
 
-// ✅ Global error handler
+// ✅ 9. Global error handler
 app.use(errorHandler);
 
 export default app;
