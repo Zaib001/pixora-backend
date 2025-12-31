@@ -1,54 +1,53 @@
-import winston from "winston";
-import morgan from "morgan";
-import path from "path";
-import fs from "fs";
+// utils/logger.js
+import winston from 'winston';
 
-
-const logDir = "logs";
-if (!fs.existsSync(logDir)) fs.mkdirSync(logDir);
-
-
-export const logger = winston.createLogger({
-  level: process.env.NODE_ENV === "development" ? "debug" : "info",
+// Create logger that works on Vercel (no file system access)
+const logger = winston.createLogger({
+  level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
   format: winston.format.combine(
-    winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
+    winston.format.timestamp(),
     winston.format.errors({ stack: true }),
-    winston.format.printf(({ level, message, timestamp, stack }) => {
-      return stack
-        ? `[${timestamp}] ${level.toUpperCase()}: ${message}\n${stack}`
-        : `[${timestamp}] ${level.toUpperCase()}: ${message}`;
-    })
+    winston.format.json()
   ),
   transports: [
+    // Console only on Vercel (no file system access)
     new winston.transports.Console({
       format: winston.format.combine(
-        winston.format.colorize({ all: true }),
+        winston.format.colorize(),
         winston.format.simple()
-      ),
-    }),
-    new winston.transports.File({
-      filename: path.join(logDir, "error.log"),
-      level: "error",
-    }),
-    new winston.transports.File({
-      filename: path.join(logDir, "combined.log"),
-    }),
-  ],
+      )
+    })
+  ]
 });
 
+// Setup function for app
 export const setupLogger = (app) => {
-  const stream = {
-    write: (message) => logger.http(message.trim()),
-  };
+  // Request logging middleware
+  app.use((req, res, next) => {
+    const start = Date.now();
 
-  const skip = () => process.env.NODE_ENV === "production" && false;
+    res.on('finish', () => {
+      const duration = Date.now() - start;
+      logger.info({
+        method: req.method,
+        url: req.url,
+        status: res.statusCode,
+        duration: `${duration}ms`,
+        userAgent: req.get('user-agent')
+      });
+    });
 
-  app.use(
-    morgan(
-      process.env.NODE_ENV === "development"
-        ? "dev"
-        : ':method :url :status :res[content-length] - :response-time ms',
-      { stream, skip }
-    )
-  );
+    next();
+  });
+
+  // Global error logging
+  app.use((err, req, res, next) => {
+    logger.error({
+      error: err.message,
+      stack: err.stack,
+      url: req.url,
+      method: req.method
+    });
+    next(err);
+  });
 };

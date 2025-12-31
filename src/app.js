@@ -1,9 +1,8 @@
 import express from "express";
 import helmet from "helmet";
-import cors from "cors";
 import compression from "compression";
 import morgan from "morgan";
-import { customCors } from "./middleware/customCors.js"; // Import custom CORS
+import { corsMiddleware } from "./middleware/customCors.js"; // Import custom CORS
 import { setupLogger } from "./utils/logger.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import authRoutes from "./routes/authRoutes.js";
@@ -21,27 +20,34 @@ dotenv.config();
 
 const app = express();
 
-// ✅ Use custom CORS middleware FIRST
-app.use(customCors);
+// ✅ 1. CORS middleware - MUST BE FIRST
+app.use(corsMiddleware);
 
-// ✅ Security headers
+// ✅ 2. Security headers (configure helmet properly)
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
-  contentSecurityPolicy: false // Disable CSP if it causes issues
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+    },
+  },
 }));
 
-// ✅ Logging
-app.use(morgan("dev"));
-setupLogger(app);
-
-// ✅ Compression
-app.use(compression());
-
-// ✅ Body parsers
+// ✅ 3. Body parsers
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ Routes
+// ✅ 4. Logging
+app.use(morgan("combined")); // Use combined format for better logs
+setupLogger(app);
+
+// ✅ 5. Compression
+app.use(compression());
+
+// ✅ 6. Routes
 app.get("/", (req, res) => {
   res.status(200).json({
     success: true,
@@ -51,6 +57,16 @@ app.get("/", (req, res) => {
   });
 });
 
+// Health check endpoint
+app.get("/api/health", (req, res) => {
+  res.status(200).json({
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    cors: "enabled"
+  });
+});
+
+// All API routes
 app.use("/api/auth", authRoutes);
 app.use("/api/credits", creditRoutes);
 app.use("/api/payments", paymentRoutes);
@@ -62,7 +78,15 @@ app.use("/api/prompts", promptRoutes);
 app.use("/api", publicRoutes);
 app.use("/api", routes);
 
-// ✅ Global error handler
+// ✅ 7. Global error handler
 app.use(errorHandler);
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: `Route ${req.originalUrl} not found`,
+  });
+});
 
 export default app;
