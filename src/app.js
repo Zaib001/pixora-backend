@@ -3,7 +3,7 @@ import helmet from "helmet";
 import cors from "cors";
 import compression from "compression";
 import morgan from "morgan";
-import { corsOptions } from "./middleware/corsOptions.js";
+import { customCors } from "./middleware/customCors.js"; // Import custom CORS
 import { setupLogger } from "./utils/logger.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import authRoutes from "./routes/authRoutes.js";
@@ -21,37 +21,27 @@ dotenv.config();
 
 const app = express();
 
-// ✅ 1. CORS FIRST - This is critical!
-app.use(cors(corsOptions));
+// ✅ Use custom CORS middleware FIRST
+app.use(customCors);
 
-// ✅ 2. Add explicit OPTIONS handler for preflight
-app.options('*', cors(corsOptions));
-
-// ✅ 3. Security headers
+// ✅ Security headers
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: false // Disable CSP if it causes issues
 }));
 
-// ✅ 4. Logging
+// ✅ Logging
 app.use(morgan("dev"));
 setupLogger(app);
 
-// ✅ 5. Compression
+// ✅ Compression
 app.use(compression());
 
-// ✅ 6. Stripe webhook route - MUST be before express.json()
-// Create a separate router for webhook that doesn't use JSON parsing
-const stripeWebhookRouter = express.Router();
-// Import your webhook handler function directly
-import { handleStripeWebhook } from "./controllers/paymentController.js";
-stripeWebhookRouter.post("/webhook", handleStripeWebhook);
-app.use("/api/payments", stripeWebhookRouter);
-
-// ✅ 7. Now parse JSON for all other routes
+// ✅ Body parsers
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ 8. Routes
+// ✅ Routes
 app.get("/", (req, res) => {
   res.status(200).json({
     success: true,
@@ -63,7 +53,7 @@ app.get("/", (req, res) => {
 
 app.use("/api/auth", authRoutes);
 app.use("/api/credits", creditRoutes);
-app.use("/api/payments", paymentRoutes); // Other payment routes (not webhook)
+app.use("/api/payments", paymentRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/content", contentRoutes);
 app.use("/api/templates", templateRoutes);
@@ -72,7 +62,7 @@ app.use("/api/prompts", promptRoutes);
 app.use("/api", publicRoutes);
 app.use("/api", routes);
 
-// ✅ 9. Global error handler
+// ✅ Global error handler
 app.use(errorHandler);
 
 export default app;
