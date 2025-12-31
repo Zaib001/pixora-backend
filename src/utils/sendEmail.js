@@ -10,22 +10,25 @@ const __dirname = path.dirname(__filename);
 
 // Email configuration
 const emailConfig = {
-  host: config.email.host || 'smtp.ethereal.email',
+  service: config.email.service || 'gmail',
+  host: config.email.host || 'smtp.gmail.com',
   port: config.email.port || 587,
+  secure: config.email.port === 465,
   auth: {
-    user: config.email.user || 'alyson19@ethereal.email',
-    pass: config.email.pass || 'PCP14TBrShqKgXdHMG'
+    user: config.email.auth.user,
+    pass: config.email.auth.pass
   },
   pool: true,
   maxConnections: 5,
   maxMessages: 100,
   rateDelta: 1000,
   rateLimit: 5,
-  secure: config.email.port === 465, // Auto-set secure based on port
+  secure: config.email.port === 465,
   tls: {
-    rejectUnauthorized: config.nodeEnv === 'production' // Strict in production
+    rejectUnauthorized: config.nodeEnv === 'production'
   }
 };
+
 
 // Create transporter
 let transporter;
@@ -38,7 +41,6 @@ try {
     if (error) {
       console.error('Email transporter verification failed:', error);
     } else {
-      console.log('Email server is ready to take messages');
     }
   });
 } catch (error) {
@@ -100,7 +102,6 @@ const loadTemplates = async () => {
       templates.welcome = templates.base;
     }
 
-    console.log('✅ Email templates loaded successfully');
   } catch (error) {
     console.warn('⚠️ Could not load email templates, using fallback:', error.message);
     // Create a simple fallback template
@@ -273,7 +274,6 @@ const sendEmail = async (options) => {
     */
 
     // Log simulated success
-    console.log('📧 (SIMULATED) Email sent successfully to:', to);
 
     return {
       success: true,

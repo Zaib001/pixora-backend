@@ -57,7 +57,6 @@ class CompetAPIProvider extends BaseProvider {
      */
     async generateVideo(prompt, modelId, aspectRatio, duration) {
         try {
-            console.log(`[CompetAPI] Starting video generation with ${modelId}`);
 
             // Map aspect ratio to size (resolution string)
             const sizeMap = {
@@ -108,22 +107,18 @@ class CompetAPIProvider extends BaseProvider {
 
             const result = await submitResponse.json();
             const videoId = result.id;
-            console.log(`[CompetAPI] Video ID: ${videoId}`);
 
             // Step 2: Poll for completion
             const finalData = await this.pollVideoProgress(videoId);
-            console.log(`[CompetAPI] Final Video Data:`, JSON.stringify(finalData, null, 2));
 
             // Extract video URL - handle both direct and nested data structures
             let videoUrl = finalData?.url || finalData?.video_url || finalData?.output_url || finalData?.data?.video_url || finalData?.data?.url;
 
             // Fallback: If no URL found, construct content URL
             if (!videoUrl) {
-                console.log("[CompetAPI] No direct video URL found in response, using content endpoint as fallback.");
                 videoUrl = `${this.baseUrl}/videos/${videoId}/content`;
             }
 
-            console.log(`[CompetAPI] Final Video URL: ${videoUrl}`);
 
             // Download the video locally
             let localPath = null;
@@ -156,7 +151,6 @@ class CompetAPIProvider extends BaseProvider {
      */
     async generateImageToVideo(imageUrl, prompt, duration, cfg_scale) {
         try {
-            console.log(`[CompetAPI] Starting Image-to-Video generation with kling-v1`);
 
             // Strip data:image/...;base64, prefix if present, as API likely wants raw base64
             let processedImage = imageUrl;
@@ -174,7 +168,6 @@ class CompetAPIProvider extends BaseProvider {
                 "cfg_scale": cfg_scale ? Number(cfg_scale) : 0.5
             };
 
-            console.log(`[CompetAPI] Payload:`, JSON.stringify({ ...payload, image: payload.image.substring(0, 50) + "..." }, null, 2));
 
             // Use direct URL as Kling endpoint structure differs from base v1
             const response = await fetch(`https://api.cometapi.com/kling/v1/videos/image2video`, {
@@ -192,7 +185,6 @@ class CompetAPIProvider extends BaseProvider {
             }
 
             const result = await response.json();
-            console.log(`[CompetAPI] Kling Response:`, JSON.stringify(result, null, 2));
 
             // Extract task_id (API returns data.task_id)
             const taskId = result.data?.task_id || result.request_id;
@@ -201,7 +193,6 @@ class CompetAPIProvider extends BaseProvider {
                 throw new Error("No task_id found in Kling response");
             }
 
-            console.log(`[CompetAPI] Kling Task ID: ${taskId}`);
 
             // Poll for completion (Reusing video polling logic)
             // Note: Kling endpoint might need different polling, but usually standard /videos/{id} works or we check status via request_id
@@ -222,17 +213,14 @@ class CompetAPIProvider extends BaseProvider {
             if (!videoUrl) {
                 const nestedData = finalData.data || finalData;
                 if (nestedData?.task_result?.videos) {
-                    console.log("[CompetAPI] Found task_result.videos in nested data, extracting URL...");
                     if (nestedData.task_result.videos.length > 0) {
                         videoUrl = nestedData.task_result.videos[0]?.url;
-                        console.log(`[CompetAPI] Extracted URL from task_result: ${videoUrl}`);
                     }
                 }
             }
 
             if (!videoUrl) {
                 // Fallback for Kling specifically
-                console.log("[CompetAPI] No URL in final data, checking raw result structure...");
                 if (finalData?.videos && finalData.videos.length > 0) {
                     videoUrl = finalData.videos[0].url;
                 }
@@ -240,13 +228,10 @@ class CompetAPIProvider extends BaseProvider {
 
             if (!videoUrl) {
                 // FALLBACK DEBUG: Log the ENTIRE final data structure to see where the URL is
-                console.log("[CompetAPI] URL Extraction Failed. Debugging Final Data Structure:");
-                console.log(JSON.stringify(finalData, null, 2));
 
                 throw new Error("Failed to retrieve video URL from completed task");
             }
 
-            console.log(`[CompetAPI] Final Kling Video URL: ${videoUrl}`);
 
             // Download locally
             let localPath = null;
@@ -276,7 +261,6 @@ class CompetAPIProvider extends BaseProvider {
      * Poll for video generation progress
      */
     async pollVideoProgress(videoId) {
-        console.log("[CompetAPI] Polling for video progress...");
 
         let attempts = 0;
 
@@ -292,7 +276,6 @@ class CompetAPIProvider extends BaseProvider {
 
                 // Handle temporary server errors (HTML responses)
                 if (text.startsWith("<")) {
-                    console.log("[CompetAPI] Temporary server error, retrying...");
                     await this.sleep(this.pollInterval);
                     attempts++;
                     continue;
@@ -304,7 +287,6 @@ class CompetAPIProvider extends BaseProvider {
                 // Check both 'status' and 'task_status' (Kling uses task_status)
                 const status = data.status || data.task_status || "unknown";
 
-                console.log(`[CompetAPI] Progress: ${progress}, Status: ${status}`);
 
                 // Check for failure - THROW OUTSIDE CATCH to prevent retry
                 if (status === "FAILURE" || status === "failed") {
@@ -314,8 +296,6 @@ class CompetAPIProvider extends BaseProvider {
 
                 // Check for completion
                 if (progress === "100%" || status === "completed" || status === "SUCCESS" || status === "succeed") {
-                    console.log("[CompetAPI] Video generation completed!");
-                    console.log("[CompetAPI] Completion Data Reached:", JSON.stringify(data, null, 2));
                     return data;
                 }
 
@@ -324,7 +304,6 @@ class CompetAPIProvider extends BaseProvider {
                 if (parseError.message.includes("Video generation failed")) {
                     throw parseError; // Re-throw permanent failure
                 }
-                console.log(`[CompetAPI] Temporary error: ${parseError.message}, retrying...`);
             }
 
             await this.sleep(this.pollInterval);
@@ -338,9 +317,7 @@ class CompetAPIProvider extends BaseProvider {
      * Download video from CompetAPI
      */
     async downloadVideo(videoId, videoUrl) {
-        console.log(`[CompetAPI] downloadVideo called for ${videoId} with url: ${videoUrl}`);
         try {
-            console.log(`[CompetAPI] Downloading video ${videoId}...`);
 
             // Create output directory if it doesn't exist
             const outputDir = path.join(process.cwd(), "public", "generated");
@@ -350,7 +327,6 @@ class CompetAPIProvider extends BaseProvider {
 
             // Determine download URL
             const downloadUrl = videoUrl || `${this.baseUrl}/videos/${videoId}/content`;
-            console.log(`[CompetAPI] Download URL: ${downloadUrl}`);
 
             // Download video
             const videoResponse = await fetch(downloadUrl, {
@@ -374,7 +350,6 @@ class CompetAPIProvider extends BaseProvider {
 
             if (fs.existsSync(outputPath)) {
                 const stats = fs.statSync(outputPath);
-                console.log(`[CompetAPI] Video saved: ${outputPath} (${stats.size} bytes)`);
 
                 // Return relative URL for frontend
                 return `/generated/${videoId}.mp4`;
@@ -393,9 +368,6 @@ class CompetAPIProvider extends BaseProvider {
      */
     async generateImageEdit(imageUrl, prompt, modelId = "gpt-image-1", mask = null, quality = "auto", size = "auto", n = 1) {
         try {
-            console.log(`[CompetAPI] Starting image editing with ${modelId}`);
-            console.log(`[CompetAPI] Prompt: "${prompt}"`);
-            console.log(`[CompetAPI] Image size: ${imageUrl.length} chars`);
 
             // Check if API key is valid
             if (!this.apiKey || this.apiKey.length < 10) {
@@ -412,21 +384,18 @@ class CompetAPIProvider extends BaseProvider {
 
             // Convert image to buffer
             const imageBuffer = base64ToBuffer(imageUrl);
-            console.log(`[CompetAPI] Image buffer size: ${imageBuffer.length} bytes`);
 
             // Create FormData - try different approaches
             let FormDataModule;
             try {
                 FormDataModule = (await import('form-data')).default;
             } catch (error) {
-                console.log('[CompetAPI] Using global FormData');
                 FormDataModule = globalThis.FormData;
             }
 
             const formdata = new FormDataModule();
 
             // Try different approaches - first approach
-            console.log('[CompetAPI] Method 1: Using buffer with filename');
             formdata.append("image", imageBuffer, "test.png");
             formdata.append("prompt", prompt);
             formdata.append("model", "gpt-image-1");
@@ -448,7 +417,6 @@ class CompetAPIProvider extends BaseProvider {
             ];
 
             const apiUrl = apiUrls[0]; // Start with first
-            console.log(`[CompetAPI] Trying URL: ${apiUrl}`);
 
             // Create headers
             const headers = {
@@ -461,7 +429,6 @@ class CompetAPIProvider extends BaseProvider {
                 Object.assign(headers, formdata.getHeaders());
             }
 
-            console.log('[CompetAPI] Headers:', {
                 'Authorization': 'Bearer [REDACTED]',
                 'Content-Type': headers['Content-Type'] || 'multipart/form-data',
                 'Content-Length': headers['Content-Length']
@@ -470,7 +437,6 @@ class CompetAPIProvider extends BaseProvider {
             // Try with axios first
             let response;
             try {
-                console.log('[CompetAPI] Attempting with axios...');
                 response = await axios.post(
                     apiUrl,
                     formdata,
@@ -484,9 +450,7 @@ class CompetAPIProvider extends BaseProvider {
                         }
                     }
                 );
-                console.log(`[CompetAPI] Axios response status: ${response.status}`);
             } catch (axiosError) {
-                console.log('[CompetAPI] Axios failed, trying fetch...');
 
                 // Try with native fetch (Node.js 18+)
                 if (globalThis.fetch) {
@@ -518,7 +482,6 @@ class CompetAPIProvider extends BaseProvider {
                         }
 
                         const result = await fetchResponse.json();
-                        console.log('[CompetAPI] Fetch succeeded!');
 
                         // Process result...
                         const b64Image = result.data?.[0]?.b64_json;
@@ -562,7 +525,6 @@ class CompetAPIProvider extends BaseProvider {
 
                 // Try alternative endpoints
                 for (let i = 1; i < apiUrls.length; i++) {
-                    console.log(`[CompetAPI] Trying alternative URL: ${apiUrls[i]}`);
                     try {
                         const altResponse = await axios.post(
                             apiUrls[i],
@@ -574,18 +536,15 @@ class CompetAPIProvider extends BaseProvider {
                         );
 
                         if (altResponse.status === 200) {
-                            console.log(`[CompetAPI] Success with URL: ${apiUrls[i]}`);
                             response = altResponse;
                             break;
                         }
                     } catch (altError) {
-                        console.log(`[CompetAPI] Failed with URL ${apiUrls[i]}: ${altError.message}`);
                     }
                 }
             }
 
             const result = response.data;
-            console.log(`[CompetAPI] Image edit response received, status: ${response.status}`);
 
             if (response.status !== 200) {
                 console.error('[CompetAPI] API Error:', result);
@@ -612,7 +571,6 @@ class CompetAPIProvider extends BaseProvider {
             const savedImageBuffer = Buffer.from(b64Image, 'base64');
             fs.writeFileSync(outputPath, savedImageBuffer);
 
-            console.log(`[CompetAPI] Image saved: ${outputPath}`);
 
             return {
                 url: `/api/content/stream/image/${imageId}`,
@@ -646,7 +604,6 @@ class CompetAPIProvider extends BaseProvider {
      */
     async enhancePrompt(originalPrompt) {
         try {
-            console.log(`[CompetAPI] Enhancing prompt: "${originalPrompt}"`);
 
             // Use a cheaper/faster model for prompt enhancement
             const model = "gpt-4o-mini";
@@ -673,7 +630,6 @@ class CompetAPIProvider extends BaseProvider {
 
             if (response.data && response.data.choices && response.data.choices.length > 0) {
                 const enhancedPrompt = response.data.choices[0].message.content.trim();
-                console.log(`[CompetAPI] Enhanced prompt: "${enhancedPrompt}"`);
                 return enhancedPrompt;
             }
 
@@ -692,7 +648,6 @@ class CompetAPIProvider extends BaseProvider {
     async generatePromptIdeas(params) {
         try {
             const { context = "text-to-video", userInput = "", count = 4, style } = params;
-            console.log(`[CompetAPI] Generating ideas for ${context} with input: "${userInput}"`);
 
             const model = "gpt-4o-mini";
             const systemPrompt = `You are a creative AI assistant. Generate ${count} diverse and detailed prompt ideas for ${context} generation based on the user's concept. Each idea must be distinct. Return ONLY the list of prompts, one per line, with no numbering, bullets, or extra text.`;
@@ -718,7 +673,6 @@ class CompetAPIProvider extends BaseProvider {
                 const rawContent = response.data.choices[0].message.content;
                 const prompts = rawContent.split('\n').filter(line => line.trim().length > 0);
 
-                console.log(`[CompetAPI] Generated ${prompts.length} ideas.`);
                 return {
                     success: true,
                     prompts: prompts.slice(0, count)
@@ -735,7 +689,6 @@ class CompetAPIProvider extends BaseProvider {
 
     async generateImage(prompt, modelId, aspectRatio, existingImage) {
         try {
-            console.log(`[CompetAPI] Starting image generation with ${modelId}`);
 
             // Map aspect ratio to size string (CompetAPI Supports: 1024x1024, 1024x1536, 1536x1024)
             const sizeMap = {
@@ -761,7 +714,6 @@ class CompetAPIProvider extends BaseProvider {
                 payload.image = [existingImage];
             }
 
-            console.log(`[CompetAPI] Payload:`, JSON.stringify(payload, null, 2));
 
             const maxRetries = 3;
             let attempt = 0;
@@ -769,7 +721,6 @@ class CompetAPIProvider extends BaseProvider {
 
             while (attempt < maxRetries) {
                 try {
-                    console.log(`[CompetAPI] Sending request to ${this.baseUrl}/images/generations (Attempt ${attempt + 1})...`);
 
                     const config = {
                         method: 'post',
@@ -784,14 +735,12 @@ class CompetAPIProvider extends BaseProvider {
 
                     response = await axios(config);
 
-                    console.log(`[CompetAPI] Response received: ${response.status}`);
                     break;
 
                 } catch (error) {
                     console.error(`[CompetAPI] Request error attempt ${attempt + 1}:`, error.message);
 
                     if (error.response && error.response.status === 429) {
-                        console.log(`[CompetAPI] Rate limited (429), retrying...`);
                         await this.sleep(this.pollInterval);
                         attempt++;
                         continue;
@@ -805,11 +754,9 @@ class CompetAPIProvider extends BaseProvider {
 
             // Axios automatically throws for non-2xx, so if we are here, it's successful.
             const result = response.data;
-            console.log(`[CompetAPI] Full Response Data:`, JSON.stringify(result, null, 2));
 
             // Helper to return success format
             const returnSuccess = (id, remoteUrl) => {
-                console.log(`[CompetAPI] Image Generation Success. ID: ${id}, RemoteURL: ${remoteUrl}`);
                 return {
                     url: `/api/content/stream/image/${id}`,
                     remoteUrl: remoteUrl, // Controller must save this
@@ -822,7 +769,6 @@ class CompetAPIProvider extends BaseProvider {
             // Handle response
             if (result.created && result.data && result.data[0].b64_json) {
                 // Case 1: Base64 JSON (Direct Data)
-                console.log(`[CompetAPI] Received Base64 Image Data`);
                 const b64Data = result.data[0].b64_json;
                 const imageBuffer = Buffer.from(b64Data, 'base64');
 
@@ -833,7 +779,6 @@ class CompetAPIProvider extends BaseProvider {
 
                 const outputPath = path.join(outputDir, `${imageId}.png`);
                 fs.writeFileSync(outputPath, imageBuffer);
-                console.log(`[CompetAPI] Saved Base64 image to ${outputPath}`);
 
                 // Return success with localPath signals controller to look locally 
                 return {
@@ -847,7 +792,6 @@ class CompetAPIProvider extends BaseProvider {
 
             } else if (result.id && !result.data) {
                 // Async - Poll for it
-                console.log(`[CompetAPI] Image ID: ${result.id}`);
                 await this.pollImageProgress(result.id);
                 // After polling, we need to get the URL. The poll method returns 'true' currently, 
                 // we might need to fetch the status one last time or update pollImageProgress to return data.
@@ -858,7 +802,6 @@ class CompetAPIProvider extends BaseProvider {
             } else if (result.data && Array.isArray(result.data) && result.data.length > 0) {
                 // Sync
                 const imageUrl = result.data[0].url;
-                console.log(`[CompetAPI] Image URL received directly: ${imageUrl}`);
 
                 // Generate fake ID for consistent routing
                 const imageId = `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -866,7 +809,6 @@ class CompetAPIProvider extends BaseProvider {
                 return returnSuccess(imageId, imageUrl);
 
             } else {
-                console.log("Unknown response format:", result);
                 throw new Error("Unknown response format from CompetAPI images");
             }
 
@@ -881,7 +823,6 @@ class CompetAPIProvider extends BaseProvider {
      * Poll for image generation progress
      */
     async pollImageProgress(imageId) {
-        console.log("[CompetAPI] Polling for image progress...");
 
         let attempts = 0;
 
@@ -896,7 +837,6 @@ class CompetAPIProvider extends BaseProvider {
                 const text = await statusResponse.text();
 
                 if (text.startsWith("<")) {
-                    console.log("[CompetAPI] Temporary server error, retrying...");
                     await this.sleep(this.pollInterval);
                     attempts++;
                     continue;
@@ -907,19 +847,16 @@ class CompetAPIProvider extends BaseProvider {
                 const progress = data.progress || "0%";
                 const status = data.status || "unknown";
 
-                console.log(`[CompetAPI] Progress: ${progress}, Status: ${status}`);
 
                 if (status === "FAILURE" || status === "failed") {
                     throw new Error(`Image generation failed: ${JSON.stringify(data)}`);
                 }
 
                 if (progress === "100%" || status === "completed" || status === "SUCCESS") {
-                    console.log("[CompetAPI] Image generation completed!");
                     return true;
                 }
 
             } catch (parseError) {
-                console.log(`[CompetAPI] Temporary error: ${parseError.message}, retrying...`);
             }
 
             await this.sleep(this.pollInterval);
@@ -934,7 +871,6 @@ class CompetAPIProvider extends BaseProvider {
      */
     async downloadImage(imageId, directUrl = null) {
         try {
-            console.log(`[CompetAPI] Downloading image ${imageId}...`);
 
             const outputDir = path.join(process.cwd(), "public", "generated");
             if (!fs.existsSync(outputDir)) {
@@ -959,7 +895,6 @@ class CompetAPIProvider extends BaseProvider {
 
             if (fs.existsSync(outputPath)) {
                 const stats = fs.statSync(outputPath);
-                console.log(`[CompetAPI] Image saved: ${outputPath} (${stats.size} bytes)`);
                 return `/generated/${imageId}.png`;
             } else {
                 throw new Error("Failed to save image file");

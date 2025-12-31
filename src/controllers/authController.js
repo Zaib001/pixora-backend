@@ -47,7 +47,6 @@ export const registerUser = async (req, res) => {
   try {
     const { name, email, password, country, language } = req.body;
 
-    console.log('📝 Registration attempt:', { name, email });
 
     // Validation (your existing validation)
     const validationErrors = [];
@@ -72,7 +71,6 @@ export const registerUser = async (req, res) => {
     // Duplicate check
     let user = await User.findOne({ email });
     if (user) {
-      console.log('❌ User already exists:', email);
       return res.status(409).json({ success: false, message: "User already exists." });
     }
 
@@ -80,10 +78,8 @@ export const registerUser = async (req, res) => {
     const otp = generateOtp();
     const otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
 
-    console.log('🔑 Generated OTP:', { otp, otpExpires, email });
 
     // Create user with OTP fields
-    console.log('📦 Creating user with OTP fields...');
     user = await User.create({
       name,
       email: email.toLowerCase().trim(),
@@ -97,24 +93,10 @@ export const registerUser = async (req, res) => {
       isFreeTierExhausted: false,
     });
 
-    console.log('✅ User created successfully:', {
-      id: user._id,
-      email: user.email,
-      otpCode: user.otpCode,
-      otpExpires: user.otpExpires,
-      verified: user.verified
-    });
 
-    // Double-check by fetching the user again
-    const verifiedUser = await User.findById(user._id);
-    console.log('🔍 Double-check user from DB:', {
-      otpCode: verifiedUser.otpCode,
-      otpExpires: verifiedUser.otpExpires
-    });
 
     // Send OTP email
     await sendOtpEmail(user.email, otp, user.name);
-    console.log(`📨 OTP ${otp} sent to ${user.email}`);
 
     const token = generateToken(user._id);
     return res.status(201).json({
@@ -137,15 +119,10 @@ export const loginUser = async (req, res) => {
   const { email, password } = req.body;
   const ip = req.ip;
 
-  console.log('\n🔐 ========== LOGIN ATTEMPT ==========');
-  console.log('📧 Email:', email);
-  console.log('🌍 IP Address:', ip);
-  console.log('⏰ Timestamp:', new Date().toISOString());
 
   try {
     // Validate input
     if (!email || !password) {
-      console.log('❌ Missing email or password');
       return res.status(400).json({
         success: false,
         message: "Email and password are required."
@@ -153,98 +130,48 @@ export const loginUser = async (req, res) => {
     }
 
     // Check rate limit
-    console.log('🚦 Checking rate limit...');
     if (!checkRateLimit(ip, email)) {
-      console.log('❌ RATE LIMIT EXCEEDED for', email);
       return res
         .status(429)
         .json({ success: false, message: "Too many login attempts. Please try again later." });
     }
-    console.log('✅ Rate limit check passed');
-
-    // Find user
-    console.log('🔍 Searching for user:', email.toLowerCase().trim());
-    const user = await User.findByEmail(email.toLowerCase().trim());
 
     if (!user) {
-      console.log('❌ USER NOT FOUND:', email);
-      console.log('📊 Database returned null - user does not exist');
       incrementRateLimit(ip, email);
       return res
         .status(401)
         .json({ success: false, message: "Invalid credentials." });
     }
 
-    console.log('✅ User found in database');
-    console.log('📋 User details:', {
-      id: user._id,
-      email: user.email,
-      name: user.name,
-      verified: user.verified,
-      role: user.role,
-      isActive: user.isActive,
-      createdAt: user.createdAt
-    });
-
-    /* // BYPASSED FOR DEPLOYMENT
-    if (!user.verified) {
-      console.log('❌ USER NOT VERIFIED');
-      console.log('⚠️  User needs to verify OTP before login');
-      return res.status(403).json({
-        success: false,
-        message: "Please verify OTP before logging in.",
-        requiresOtpVerification: true,
-      });
-    }
-    */
-    console.log('✅ User verification bypassed for deployment');
-    // Reference: User is verified: ${user.verified}
-    console.log('✅ User is verified');
-
     // Check if account is active
     if (!user.isActive) {
-      console.log('❌ ACCOUNT DEACTIVATED');
       return res.status(403).json({
         success: false,
         message: "Your account has been deactivated. Please contact support.",
       });
     }
-    console.log('✅ Account is active');
 
     // Verify password
-    console.log('🔐 Verifying password...');
     const isMatch = await user.matchPassword(password);
 
     if (!isMatch) {
-      console.log('❌ PASSWORD MISMATCH');
-      console.log('⚠️  Incrementing failed login attempts');
       await user.incrementLoginAttempts();
       incrementRateLimit(ip, email);
       return res
         .status(401)
         .json({ success: false, message: "Invalid credentials." });
     }
-    console.log('✅ Password verified successfully');
 
     // Reset login attempts
-    console.log('🔄 Resetting login attempts and rate limit');
     await user.resetLoginAttempts();
     resetRateLimit(ip, email);
 
-    // Update last login
-    console.log('📝 Updating last login timestamp');
     user.lastLogin = new Date();
     user.lastIP = ip;
     await user.save({ validateBeforeSave: false });
 
-    // Generate token
-    console.log('🎟️  Generating JWT token');
     const token = generateToken(user._id);
 
-    console.log('✅ ========== LOGIN SUCCESSFUL ==========');
-    console.log('👤 User:', user.email);
-    console.log('🆔 User ID:', user._id);
-    console.log('========================================\n');
 
     return res.status(200).json({
       success: true,
@@ -265,10 +192,7 @@ export const loginUser = async (req, res) => {
       },
     });
   } catch (error) {
-    console.log('❌ ========== LOGIN ERROR ==========');
-    console.error('💥 Error details:', error);
-    console.error('📚 Stack trace:', error.stack);
-    console.log('====================================\n');
+    incrementRateLimit(ip, email);
 
     incrementRateLimit(ip, email);
     return res
@@ -282,8 +206,6 @@ export const verifyOtp = async (req, res) => {
   try {
     const { email, otp } = req.body;
 
-    console.log(`🔍 Verifying OTP for: ${email}`);
-    console.log(`📨 Received OTP: ${otp}`);
 
     if (!email || !otp) {
       return res.status(400).json({
@@ -296,22 +218,15 @@ export const verifyOtp = async (req, res) => {
     const user = await User.findOne({ email: email.toLowerCase().trim() });
 
     if (!user) {
-      console.log(`❌ User not found: ${email}`);
       return res.status(404).json({
         success: false,
         message: "User not found",
       });
     }
 
-    console.log(`🧾 Found user with OTP:`, {
-      email: user.email,
-      otpCode: user.otpCode,
-      otpExpires: user.otpExpires
-    });
 
     // Check if OTP exists and is not expired
     if (!user.otpCode) {
-      console.log(`❌ No OTP found for user: ${email}`);
       return res.status(400).json({
         success: false,
         message: "No OTP found. Please request a new OTP.",
@@ -319,24 +234,14 @@ export const verifyOtp = async (req, res) => {
     }
 
     if (user.otpExpires < Date.now()) {
-      console.log(`❌ OTP expired for user: ${email}`);
       return res.status(400).json({
         success: false,
         message: "OTP has expired. Please request a new OTP.",
       });
     }
 
-    // Verify OTP
-    console.log(`🔍 Comparing:`, {
-      incomingOtp: otp,
-      storedOtp: user.otpCode
-    });
 
     if (user.otpCode !== otp) {
-      console.log(`❌ Invalid OTP:`, {
-        expected: user.otpCode,
-        received: otp
-      });
       return res.status(400).json({
         success: false,
         message: "Invalid OTP",
@@ -348,8 +253,6 @@ export const verifyOtp = async (req, res) => {
     user.otpCode = undefined;
     user.otpExpires = undefined;
     await user.save();
-
-    console.log(`✅ OTP verified successfully for: ${email}`);
 
     // Generate new token
     const token = generateToken(user._id);
@@ -408,7 +311,6 @@ export const resendOtp = async (req, res) => {
     await user.save({ validateBeforeSave: false });
 
     await sendOtpEmail(user.email, newOtp, user.name);
-    console.log(`📨 New OTP ${newOtp} sent to ${user.email}`);
 
     return res.status(200).json({
       success: true,
@@ -630,7 +532,6 @@ export const changePassword = async (req, res) => {
 
 export const logoutUser = async (req, res) => {
   try {
-    console.log(`User logged out: ${req.user.email} from IP: ${req.ip}`);
 
     res.status(200).json({
       success: true,
@@ -718,7 +619,6 @@ export const forgotPassword = async (req, res) => {
 
     // Always return success to prevent email enumeration
     if (!user) {
-      console.log(`❌ Password reset requested for non-existent email: ${email}`);
       return res.status(200).json({
         success: true,
         message: "If an account exists with this email, a password reset OTP has been sent.",
@@ -739,7 +639,6 @@ export const forgotPassword = async (req, res) => {
     user.otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
     await user.save({ validateBeforeSave: false });
 
-    console.log(`🔐 Password reset OTP generated for: ${email}`);
 
     // Send password reset OTP email
     await sendOtpEmail(user.email, resetOtp, user.name, "password_reset");
@@ -765,7 +664,6 @@ export const verifyResetPasswordOtp = async (req, res) => {
   try {
     const { email, otp } = req.body;
 
-    console.log(`🔍 Verifying password reset OTP for: ${email}`);
 
     if (!email || !otp) {
       return res.status(400).json({
@@ -810,7 +708,6 @@ export const verifyResetPasswordOtp = async (req, res) => {
     const resetToken = user.generatePasswordResetToken();
     await user.save({ validateBeforeSave: false });
 
-    console.log(`✅ Password reset OTP verified for: ${email}`);
 
     res.status(200).json({
       success: true,
@@ -886,7 +783,6 @@ export const resetPassword = async (req, res) => {
 
     await user.save();
 
-    console.log(`✅ Password reset successful for user: ${user.email}`);
 
     try {
       await sendPasswordChangedEmail(user.email, user.name, new Date(), req.ip);

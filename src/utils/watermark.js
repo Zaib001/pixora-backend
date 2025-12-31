@@ -89,7 +89,6 @@ export const generateWatermarkText = (customText = null) => {
 export const applyImageWatermark = async (imageBuffer, options = {}) => {
     // TODO: Implement actual watermark application using sharp or canvas
     // For now, return the original buffer with metadata
-    console.log('Watermark would be applied with config:', { ...watermarkConfig, ...options });
     return imageBuffer;
 };
 
@@ -104,7 +103,6 @@ export const applyImageWatermark = async (imageBuffer, options = {}) => {
 export const applyVideoWatermark = async (videoPath, options = {}) => {
     // TODO: Implement actual watermark application using ffmpeg
     // For now, return the original path with metadata
-    console.log('Video watermark would be applied with config:', { ...watermarkConfig, ...options });
     return videoPath;
 };
 

@@ -407,7 +407,6 @@ export const handleWebhook = async (req, res) => {
                 break;
 
             default:
-                console.log(`Unhandled event type: ${event.type}`);
         }
 
         res.json({ received: true });
@@ -432,7 +431,6 @@ async function handleCheckoutCompleted(session) {
         }
     } else if (metadata.type === "subscription") {
         // Subscription will be handled by subscription.created event
-        console.log("Subscription checkout completed:", session.id);
     }
 }
 

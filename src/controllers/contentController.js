@@ -55,7 +55,6 @@ export const generateContent = async (req, res) => {
             }
         } else {
             const defaultModelId = type === "image" ? "gpt-image-1.5" : "sora-2";
-            console.log(`No model selected, using default ${defaultModelId}`);
 
             selectedModel = await Model.findOne({
                 modelId: defaultModelId,
@@ -109,18 +108,12 @@ export const generateContent = async (req, res) => {
         const config = await AIConfig.findOne({ configKey: "global" });
         let generationStartTime = Date.now();
 
-        console.log("=== AI Configuration Debug ===");
-        console.log("Config found:", !!config);
-        console.log("Selected model:", selectedModel ? selectedModel.modelId : "none");
         if (config) {
-            console.log("Mock mode enabled:", config.features.enableMockMode);
-            console.log("CompetAPI key configured:", !!config.getApiKey("competapi"));
         }
 
         const useMockMode = !config || config.features.enableMockMode;
 
         if (useMockMode || !selectedModel) {
-            console.log("Using mock generation");
             await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 2000));
 
             const MOCK_VIDEOS = [
@@ -158,7 +151,6 @@ export const generateContent = async (req, res) => {
                 maxRetries: config.features.maxRetries,
             });
 
-            console.log(`Starting AI generation with model: ${modelId}`);
 
             const generationResult = await provider.generate({
                 model: modelId,
@@ -176,7 +168,6 @@ export const generateContent = async (req, res) => {
                 n: req.body.n
             });
 
-            console.log("Generation Result:", JSON.stringify(generationResult, null, 2));
 
             // Extract data from generationResult
             generationId = generationResult.generationId || generationResult.id || generationResult.task_id || `gen-${Date.now()}`;
@@ -199,19 +190,16 @@ export const generateContent = async (req, res) => {
                     remoteUrl = generationResult.url;
                 }
 
-                console.log(`Video remote URL extracted: ${remoteUrl}`);
 
                 // Create streaming URL for the video (this is what frontend will use)
                 const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
                 resultUrl = `${baseUrl}/api/content/stream/video/${generationId}`;
 
-                console.log(`Created streaming URL: ${resultUrl}`);
             } else if (type === "image" && generationResult.localPath) {
                 // For locally saved images
                 const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
                 resultUrl = `${baseUrl}/api/content/stream/image/${generationId}`;
                 remoteUrl = generationResult.localPath;
-                console.log(`Created image streaming URL: ${resultUrl}`);
             } else {
                 // Fallback for other types
                 resultUrl = generationResult.url || generationResult.localUrl;
@@ -231,9 +219,6 @@ export const generateContent = async (req, res) => {
                 progress: generationResult.progress
             };
 
-            console.log(`AI generation completed: ${resultUrl}`);
-            console.log(`Generation ID: ${generationId}`);
-            console.log(`Remote URL: ${remoteUrl}`);
 
             const generationTime = Math.floor((Date.now() - generationStartTime) / 1000);
             if (selectedModel) {
@@ -320,10 +305,8 @@ export const generateContent = async (req, res) => {
 
                 if (wasFreeGeneration || (req.body.type && user.freeGenerationsLeft < 3)) {
                     await user.restoreFreeGeneration(`${req.body.type || 'content'} generation failed`);
-                    console.log(`✅ Restored free generation for user ${user._id}`);
                 } else if (user.credits >= 0) {
                     await user.addCredits(cost, "refund", `${type} generation failed - refunded ${cost} credit${cost > 1 ? 's' : ''}`);
-                    console.log(`✅ Restored ${cost} credits for user ${user._id}`);
                 }
 
                 if (modelId) {
@@ -495,7 +478,6 @@ export const streamImage = async (req, res) => {
     try {
         // Param extraction must match route definition: /stream/image/:imageId
         const id = req.params.imageId || req.params.id;
-        console.log(`Streaming request for image: ${id}`);
 
         if (!id) {
             // SET CORS HEADERS BEFORE ERROR RESPONSE
@@ -511,7 +493,6 @@ export const streamImage = async (req, res) => {
         let content = await Content.findOne({ generationId: id });
 
         if (!content) {
-            console.log(`No content found with generationId: ${id}`);
             // Try alternative ID formats
             const query = { generationId: id };
             if (id.match(/^[0-9a-fA-F]{24}$/)) {
@@ -531,7 +512,6 @@ export const streamImage = async (req, res) => {
         }
 
         if (!content) {
-            console.log(`Image not found in database: ${id}`);
             // SET CORS HEADERS BEFORE ERROR RESPONSE
             res.setHeader("Access-Control-Allow-Origin", "*");
             res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
@@ -556,7 +536,6 @@ export const streamImage = async (req, res) => {
                 const testPath = path.join(generatedPath, filename);
                 if (fs.existsSync(testPath)) {
                     localPath = testPath;
-                    console.log(`Found image at: ${localPath}`);
                     break;
                 }
             }
@@ -565,7 +544,6 @@ export const streamImage = async (req, res) => {
                 const publicPath = path.join(process.cwd(), 'public', 'generated', `${id}.png`);
                 if (fs.existsSync(publicPath)) {
                     localPath = publicPath;
-                    console.log(`Found image at public path: ${localPath}`);
                 }
             }
 
@@ -576,7 +554,6 @@ export const streamImage = async (req, res) => {
                         { _id: content._id },
                         { $set: { 'metadata.localFilePath': localPath } }
                     );
-                    console.log("Self-healed content record with localPath");
                 } catch (dbError) {
                     console.error("Failed to update content record:", dbError);
                 }
@@ -584,7 +561,6 @@ export const streamImage = async (req, res) => {
         }
 
         if (localPath && fs.existsSync(localPath)) {
-            console.log(`Serving local file: ${localPath}`);
 
             // Get file stats
             const stats = fs.statSync(localPath);
@@ -618,7 +594,6 @@ export const streamImage = async (req, res) => {
 
         // Fallback to remote URL if available
         if (content.remoteUrl) {
-            console.log(`Falling back to remote URL: ${content.remoteUrl}`);
 
             const config = await AIConfig.findOne({ configKey: "global" });
             const apiKey = config ? config.getApiKey("competapi") : process.env.COMPETAPI_KEY;
@@ -648,7 +623,6 @@ export const streamImage = async (req, res) => {
         }
 
         // If no local file and no remote URL
-        console.log("No local file or remote URL found");
         res.setHeader("Access-Control-Allow-Origin", "*");
         res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
         return res.status(404).json({
@@ -686,7 +660,6 @@ export const streamVideo = async (req, res) => {
         let content = await Content.findOne({ generationId: id });
 
         if (!content) {
-            console.log(`No content found with generationId: ${id}`);
             const query = { generationId: id };
             if (id.match(/^[0-9a-fA-F]{24}$/)) {
                 query.$or = [
@@ -701,18 +674,15 @@ export const streamVideo = async (req, res) => {
                 ];
                 delete query.generationId;
             }
-            console.log("Searching with query:", query);
             content = await Content.findOne(query);
         }
 
         if (!content) {
-            console.log(`Video not found in database: ${id}`);
             res.setHeader("Access-Control-Allow-Origin", "*");
             res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
             return res.status(404).send("Video not found");
         }
 
-        console.log(`Found content: ${content.type} with remoteUrl: ${content.remoteUrl}`);
 
         // Check if we have a local file path
         let localPath = content.metadata?.localFilePath;
@@ -747,7 +717,6 @@ export const streamVideo = async (req, res) => {
                     const testPath = path.join(publicPath, filename);
                     if (fs.existsSync(testPath)) {
                         localPath = testPath;
-                        console.log(`Found video at public path: ${localPath}`);
                         break;
                     }
                 }
@@ -760,7 +729,6 @@ export const streamVideo = async (req, res) => {
                         { _id: content._id },
                         { $set: { 'metadata.localFilePath': localPath } }
                     );
-                    console.log("Self-healed content record with localPath");
                 } catch (dbError) {
                     console.error("Failed to update content record:", dbError);
                 }
@@ -768,7 +736,6 @@ export const streamVideo = async (req, res) => {
         }
 
         if (localPath && fs.existsSync(localPath)) {
-            // console.log(`Serving local video: ${localPath}`);
 
             // Check if this is a download request
             if (req.query.download === 'true') {
@@ -824,18 +791,15 @@ export const streamVideo = async (req, res) => {
         let remoteUrl = content.remoteUrl;
 
         if (!remoteUrl && content.url && content.url.startsWith('http') && !content.url.includes('/api/content/stream/')) {
-            console.log(`remoteUrl is missing, trying to use 'url' field directly: ${content.url}`);
             remoteUrl = content.url;
         }
 
         if (!remoteUrl) {
-            console.log(`No remote URL available for video: ${id}`);
             res.setHeader("Access-Control-Allow-Origin", "*");
             res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
             return res.status(404).send("Video not found or link expired");
         }
 
-        console.log(`Using remote URL: ${remoteUrl}`);
 
         const config = await AIConfig.findOne({ configKey: "global" });
         const apiKey = config ? config.getApiKey("competapi") : process.env.COMPETAPI_KEY;
@@ -942,7 +906,6 @@ export const downloadImage = async (req, res) => {
 
             // Self-heal logic for downloads too
             if (localPath && fs.existsSync(localPath) && !content.metadata?.localFilePath) {
-                console.log(`Self-healing image path during download: ${localPath}`);
                 await Content.updateOne(
                     { _id: content._id },
                     { $set: { 'metadata.localFilePath': localPath } }
@@ -1126,7 +1089,6 @@ export const deleteContent = async (req, res) => {
         if (content.localPath && fs.existsSync(content.localPath)) {
             try {
                 fs.unlinkSync(content.localPath);
-                console.log(`Deleted local file: ${content.localPath}`);
             } catch (fileError) {
                 console.error("Failed to delete local file:", fileError);
                 // Continue even if file deletion fails
