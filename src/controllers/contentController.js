@@ -567,6 +567,17 @@ export const streamImage = async (req, res) => {
 
         if (localPath && fs.existsSync(localPath)) {
 
+            // Check if this is a download request
+            if (req.query.download === 'true') {
+                res.setHeader('Access-Control-Allow-Origin', '*');
+                res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+                res.setHeader('Content-Disposition', `attachment; filename="pixora-image-${id}.png"`);
+                res.setHeader('Content-Type', 'image/png');
+                const readStream = fs.createReadStream(localPath);
+                readStream.pipe(res);
+                return;
+            }
+
             // Get file stats
             const stats = fs.statSync(localPath);
 
