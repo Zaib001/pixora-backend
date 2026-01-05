@@ -3,6 +3,7 @@ import { protect, authorize } from '../middleware/authMiddleware.js';
 import {
     createTemplate,
     getTemplates,
+    updateTemplate,
     deleteTemplate
 } from '../controllers/templateController.js';
 
@@ -13,6 +14,7 @@ router.get('/', protect, getTemplates); // Or allow public: router.get('/', getT
 
 // Admin only routes
 router.post('/', protect, authorize('admin', 'superadmin'), createTemplate);
+router.patch('/:id', protect, authorize('admin', 'superadmin'), updateTemplate);
 router.delete('/:id', protect, authorize('admin', 'superadmin'), deleteTemplate);
 
 export default router;

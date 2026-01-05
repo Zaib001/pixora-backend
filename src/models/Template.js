@@ -12,11 +12,28 @@ const templateSchema = new mongoose.Schema({
     },
     thumbnailUrl: {
         type: String,
-        required: [true, 'Please provide a thumbnail URL']
+        required: false,
+        default: 'https://placehold.co/600x400?text=Pixora+Template'
     },
     previewUrl: {
         type: String,
-        required: [true, 'Please provide a preview URL (video/image)']
+        required: false,
+        default: 'https://placehold.co/600x400?text=Pixora+Preview'
+    },
+    promptText: {
+        type: String,
+        required: [true, 'Please provide prompt text'],
+        trim: true
+    },
+    contentType: {
+        type: String,
+        enum: ['textToVideo', 'imageToVideo', 'textToImage', 'imageToImage'],
+        required: [true, 'Please provide content type'],
+        default: 'textToVideo'
+    },
+    isActive: {
+        type: Boolean,
+        default: true
     },
     category: {
         type: String,

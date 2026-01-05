@@ -5,12 +5,24 @@ import Template from '../models/Template.js';
 // @access  Private/Admin
 export const createTemplate = async (req, res) => {
     try {
-        const { title, description, thumbnailUrl, previewUrl, category, duration, credits, isPopular } = req.body;
+        const {
+            title,
+            description,
+            thumbnailUrl,
+            previewUrl,
+            category,
+            duration,
+            credits,
+            isPopular,
+            promptText,
+            contentType,
+            isActive
+        } = req.body;
 
-        if (!title || !description || !thumbnailUrl || !previewUrl) {
+        if (!title || !description || !promptText || !contentType) {
             return res.status(400).json({
                 success: false,
-                message: 'Please provide all required fields'
+                message: 'Please provide all required fields (title, description, promptText, contentType)'
             });
         }
 
@@ -22,7 +34,10 @@ export const createTemplate = async (req, res) => {
             category,
             duration,
             credits,
-            isPopular
+            isPopular,
+            promptText,
+            contentType,
+            isActive: isActive !== undefined ? isActive : true
         });
 
         res.status(201).json({
@@ -49,6 +64,12 @@ export const getTemplates = async (req, res) => {
 
         let query = {};
 
+        // If not admin, only show active templates
+        // We can check user role if req.user exists (added by protect middleware)
+        if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'superadmin')) {
+            query.isActive = true;
+        }
+
         if (category && category !== 'all') {
             query.category = category;
         }
@@ -69,6 +90,40 @@ export const getTemplates = async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to fetch templates'
+        });
+    }
+};
+
+// @desc    Update a template
+// @route   PATCH /api/templates/:id
+// @access  Private/Admin
+export const updateTemplate = async (req, res) => {
+    try {
+        let template = await Template.findById(req.params.id);
+
+        if (!template) {
+            return res.status(404).json({
+                success: false,
+                message: 'Template not found'
+            });
+        }
+
+        template = await Template.findByIdAndUpdate(req.params.id, req.body, {
+            new: true,
+            runValidators: true
+        });
+
+        res.status(200).json({
+            success: true,
+            data: template,
+            message: 'Template updated successfully'
+        });
+    } catch (error) {
+        console.error('Update Template Error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update template',
+            error: error.message
         });
     }
 };
