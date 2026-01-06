@@ -55,49 +55,69 @@ class CompetAPIProvider extends BaseProvider {
     /**
      * Generate video using CompetAPI
      */
+    /**
+     * Generate video using CompetAPI
+     */
     async generateVideo(prompt, modelId, aspectRatio, duration) {
         try {
+            // Strict Parameter Enforcement
 
-            // Map aspect ratio to size (resolution string)
+            // 1. Model: Default to sora-2, allow sora-2-pro
+            // If modelId is passed but not one of the allowed, default to sora-2
+            let model = "sora-2";
+            if (modelId === "sora-2-pro" || modelId === "sora-2") {
+                model = modelId;
+            }
+
+            // 2. Seconds: Default to 4, allowed: 4, 8, 12
+            let seconds = "4";
+            const validSeconds = ["4", "8", "12"];
+            const durationStr = String(duration);
+            if (validSeconds.includes(durationStr)) {
+                seconds = durationStr;
+            }
+
+            // 3. Size: Default to 720x1280
+            // Map common aspect ratios to allowed sizes if necessary, or pass through strict sizes
+            // Allowed: 720x1280, 1280x720, 1024x1792, 1792x1024
+            let size = "720x1280";
+            const allowedSizes = ["720x1280", "1280x720", "1024x1792", "1792x1024"];
+
+            // Logic to handle if frontend sends "16:9" or strict size
             const sizeMap = {
                 "16:9": "1280x720",
                 "9:16": "720x1280",
-                "1:1": "1024x1024",
-                "4:3": "1024x768",
-                "3:4": "768x1024",
-                "21:9": "1280x548"
+                "1:1": "1024x1024", // Note: 1:1 is NOT in the user's provided strict list for sora-2, so we might need to fallback or stick to strict list. 
+                // User said: "REMOVE EXTRA PARAMETERS AND USE AND ADD EXACT THESE VALUE"
+                // The prompt example says allowed sizes are: 720x1280, 1280x720, 1024x1792, 1792x1024
+                // So "1024x1024" should probably NOT be sent if we want to be strict.
+                "1280x720": "1280x720",
+                "720x1280": "720x1280",
+                "1024x1792": "1024x1792",
+                "1792x1024": "1792x1024"
             };
 
-            // Using native FormData as per official docs
+            if (allowedSizes.includes(aspectRatio)) {
+                size = aspectRatio;
+            } else if (sizeMap[aspectRatio] && allowedSizes.includes(sizeMap[aspectRatio])) {
+                size = sizeMap[aspectRatio];
+            }
+            // If strictly 1:1 was requested, we fallback to 720x1280 or similar as it's not in the allowed list for this specific request.
+
+            // Construct FormData with ONLY the 4 allowed fields
             const formData = new FormData();
-            formData.append("model", modelId);
             formData.append("prompt", prompt);
+            formData.append("model", model);
+            formData.append("seconds", seconds);
+            formData.append("size", size);
 
-            // Map aspect ratio to 'size'
-            if (aspectRatio && sizeMap[aspectRatio]) {
-                formData.append("size", sizeMap[aspectRatio]);
-            } else {
-                formData.append("size", "1280x720"); // Default fallback
-            }
-
-            // Map duration to 'seconds' (Supported: 4, 8, 12)
-            // Snap to nearest supported value
-            let seconds = 4;
-            if (duration) {
-                const d = parseInt(duration);
-                if (d <= 6) seconds = 4;
-                else if (d <= 10) seconds = 8;
-                else seconds = 12;
-            }
-            formData.append("seconds", seconds.toString());
-
-            // Note: Native fetch + FormData automatically sets Content-Type with boundary
             const submitResponse = await fetch(`${this.baseUrl}/videos`, {
                 method: "POST",
                 headers: {
                     "Authorization": `Bearer ${this.apiKey}`
+                    // boundary is set automatically by fetch+FormData
                 },
-                body: formData
+                body: formData,
             });
 
             if (!submitResponse.ok) {
@@ -106,36 +126,41 @@ class CompetAPIProvider extends BaseProvider {
             }
 
             const result = await submitResponse.json();
-            const videoId = result.id;
+
+            // API return might just be { id: "..." } or payload text
+            // User example shows console.log(result), implying text/json response.
+            // Assuming standard flow returns an ID to poll.
+            const videoId = result.id || result.data?.id;
+
+            if (!videoId) {
+                throw new Error(`No video ID found in response: ${JSON.stringify(result)}`);
+            }
 
             // Step 2: Poll for completion
             const finalData = await this.pollVideoProgress(videoId);
 
-            // Extract video URL - handle both direct and nested data structures
+            // Extract video URL
             let videoUrl = finalData?.url || finalData?.video_url || finalData?.output_url || finalData?.data?.video_url || finalData?.data?.url;
 
-            // Fallback: If no URL found, construct content URL
+            // Fallback
             if (!videoUrl) {
                 videoUrl = `${this.baseUrl}/videos/${videoId}/content`;
             }
 
-
-            // Download the video locally
+            // Download
             let localPath = null;
             try {
                 const relativePath = await this.downloadVideo(videoId, videoUrl);
-                // Convert relative path to absolute for the return object
                 localPath = path.join(process.cwd(), "public", relativePath);
             } catch (downloadError) {
                 console.error("[CompetAPI] Failed to auto-download video:", downloadError);
-                // We continue even if download fails, falling back to remote URL
             }
 
             return {
                 url: `/api/content/stream/video/${videoId}`,
                 remoteUrl: videoUrl,
                 localPath: localPath,
-                modelUsed: modelId,
+                modelUsed: model,
                 generationId: videoId,
                 format: "mp4"
             };
