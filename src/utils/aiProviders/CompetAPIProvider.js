@@ -714,142 +714,108 @@ class CompetAPIProvider extends BaseProvider {
         }
     }
 
+    /**
+     * Generate image using CompetAPI (Strict Text-to-Image)
+     */
     async generateImage(prompt, modelId, aspectRatio, existingImage) {
         try {
+            // Strict Model Enforcement
+            const validModels = ["dall-e-3", "gpt-image-1", "gpt-image-1-mini", "flux-kontext-max", "flux-kontext-pro", "qwen-image"];
+            const model = validModels.includes(modelId) ? modelId : "dall-e-3";
 
-            // Map aspect ratio to size string (CompetAPI Supports: 1024x1024, 1024x1536, 1536x1024)
-            const sizeMap = {
-                "16:9": "1536x1024", // Landscape
-                "9:16": "1024x1536", // Portrait
-                "1:1": "1024x1024",  // Square
-                "4:3": "1536x1024",  // Landscape fallback
-                "3:4": "1024x1536",  // Portrait fallback
-                "21:9": "1536x1024"  // Landscape fallback
+            // Strict Size Enforcement
+            // User docs say: 256x256, 512x512, 1024x1024. Default to 1024x1024.
+            const validSizes = ["256x256", "512x512", "1024x1024"];
+            let size = "1024x1024";
+
+            // Map aspect ratios if passed, otherwise default
+            if (aspectRatio === "1:1") size = "1024x1024";
+            else if (aspectRatio === "Square") size = "1024x1024";
+
+            // Construct strictly defined JSON payload
+            const raw = JSON.stringify({
+                "model": model,
+                "size": size,
+                "n": 1,
+                "prompt": prompt
+                // "image": existingImage ? [existingImage] : undefined // User's doc showed image array for edits, but this is generateImage. 
+                // However, user example showed "image": [".jpg"]. I will omit 'image' for pure text-to-image unless it's needed.
+                // The provided example was:
+                // { "model": "gpt-image-1.5", "size": "1024x1024", "n": 1, "prompt": "fire up", "image": [".jpg"] }
+                // But typically T2I doesn't take an image. I'll stick to prompt/model/size/n for T2I.
+            });
+
+            const requestOptions = {
+                method: 'POST',
+                headers: {
+                    "Authorization": `Bearer ${this.apiKey}`,
+                    "Content-Type": "application/json"
+                },
+                body: raw,
+                redirect: 'follow'
             };
 
-            const size = (aspectRatio && sizeMap[aspectRatio]) ? sizeMap[aspectRatio] : "1024x1024";
+            const response = await fetch(`${this.baseUrl}/images/generations`, requestOptions);
 
-            // Construct JSON payload matching user snippet
-            const payload = {
-                model: modelId,
-                prompt: prompt,
-                size: size,
-                n: 1
-            };
-
-            if (existingImage) {
-                payload.image = [existingImage];
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`CompetAPI Error (${response.status}): ${errorText}`);
             }
 
+            const result = await response.json();
 
-            const maxRetries = 3;
-            let attempt = 0;
-            let response;
+            // Extract data
+            // Expecting result.data[0].url or result.data[0].b64_json
+            if (result.data && result.data.length > 0) {
+                const imageItem = result.data[0];
+                let remoteUrl = imageItem.url;
+                let b64Data = imageItem.b64_json;
 
-            while (attempt < maxRetries) {
-                try {
+                // If we got b64_json, let's save it (similar to previous logic)
+                // If we got url, we can use it directly
 
-                    const config = {
-                        method: 'post',
-                        url: `${this.baseUrl}/images/generations`,
-                        headers: {
-                            'Authorization': `Bearer ${this.apiKey}`,
-                            'Content-Type': 'application/json'
-                        },
-                        data: payload,
-                        timeout: 120000 // 2 minutes timeout
+                let generationId = `gen-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+                if (b64Data) {
+                    const imageBuffer = Buffer.from(b64Data, 'base64');
+                    // We'll rely on the controller to handle saving or stream it if we return the right format
+                    // But to be safe and consistent with previous code, let's return it struct
+                    // Save image locally
+                    const outputDir = path.join(process.cwd(), "public", "generated");
+                    if (!fs.existsSync(outputDir)) {
+                        fs.mkdirSync(outputDir, { recursive: true });
+                    }
+                    const outputPath = path.join(outputDir, `${generationId}.png`);
+                    fs.writeFileSync(outputPath, imageBuffer);
+
+                    return {
+                        url: `/api/content/stream/image/${generationId}`,
+                        remoteUrl: null,
+                        localPath: outputPath,
+                        modelUsed: model,
+                        generationId: generationId,
+                        format: "png"
                     };
 
-                    response = await axios(config);
-
-                    break;
-
-                } catch (error) {
-                    console.error(`[CompetAPI] Request error attempt ${attempt + 1}:`, error.message);
-
-                    if (error.response && error.response.status === 429) {
-                        await this.sleep(this.pollInterval);
-                        attempt++;
-                        continue;
-                    }
-
-                    attempt++;
-                    if (attempt >= maxRetries) throw error;
-                    await this.sleep(this.pollInterval);
+                } else if (remoteUrl) {
+                    return {
+                        url: remoteUrl, // Use remote URL directly if provided
+                        remoteUrl: remoteUrl,
+                        modelUsed: model,
+                        generationId: generationId,
+                        format: "png" // Assume png
+                    };
                 }
             }
 
-            // Axios automatically throws for non-2xx, so if we are here, it's successful.
-            const result = response.data;
-
-            // Helper to return success format
-            const returnSuccess = (id, remoteUrl) => {
-                return {
-                    url: `/api/content/stream/image/${id}`,
-                    remoteUrl: remoteUrl, // Controller must save this
-                    modelUsed: modelId,
-                    generationId: id,
-                    format: "png"
-                };
-            };
-
-            // Handle response
-            if (result.created && result.data && result.data[0].b64_json) {
-                // Case 1: Base64 JSON (Direct Data)
-                const b64Data = result.data[0].b64_json;
-                const imageBuffer = Buffer.from(b64Data, 'base64');
-
-                // We MUST save this to serve it via stream, as we can't stream a non-existent remote URL
-                const imageId = `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-                // Use /tmp for Vercel deployment, otherwise use public/generated
-                const isVercel = process.env.VERCEL || process.env.NODE_ENV === 'production';
-                const outputDir = isVercel
-                    ? path.join("/", "tmp", "generated")
-                    : path.join(process.cwd(), "public", "generated");
-
-                if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
-
-                const outputPath = path.join(outputDir, `${imageId}.png`);
-                fs.writeFileSync(outputPath, imageBuffer);
-
-                // Return success with localPath signals controller to look locally 
-                return {
-                    url: `/api/content/stream/image/${imageId}`,
-                    remoteUrl: null,
-                    localPath: outputPath, // Return the local path
-                    modelUsed: modelId,
-                    generationId: imageId,
-                    format: "png"
-                };
-
-            } else if (result.id && !result.data) {
-                // Async - Poll for it
-                await this.pollImageProgress(result.id);
-                // After polling, we need to get the URL. The poll method returns 'true' currently, 
-                // we might need to fetch the status one last time or update pollImageProgress to return data.
-                // Let's quickly check status.
-                const statusCheck = await this.checkStatus(result.id, "image");
-                return returnSuccess(result.id, statusCheck.url);
-
-            } else if (result.data && Array.isArray(result.data) && result.data.length > 0) {
-                // Sync
-                const imageUrl = result.data[0].url;
-
-                // Generate fake ID for consistent routing
-                const imageId = `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-                return returnSuccess(imageId, imageUrl);
-
-            } else {
-                throw new Error("Unknown response format from CompetAPI images");
-            }
+            throw new Error("No image data found in response");
 
         } catch (error) {
-            console.error("[CompetAPI] Image generation error:", error);
+            console.error(`[CompetAPI] Generate Image Error:`, error);
             throw error;
         }
     }
+
 
 
     /**
