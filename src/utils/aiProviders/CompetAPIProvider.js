@@ -111,9 +111,22 @@ class CompetAPIProvider extends BaseProvider {
             formData.append("seconds", seconds);
             formData.append("size", size);
 
-            // Prepare headers - using form-data package requires getHeaders() for boundary
+            // Calculate content length explicitly to avoid EOF errors with node-fetch/axios
+            const getLength = (formData) => {
+                return new Promise((resolve, reject) => {
+                    formData.getLength((err, length) => {
+                        if (err) reject(err);
+                        else resolve(length);
+                    });
+                });
+            };
+
+            const contentLength = await getLength(formData);
+
+            // Prepare headers - include Length and Boundary
             const headers = {
                 "Authorization": `Bearer ${this.apiKey}`,
+                "Content-Length": contentLength,
                 ...formData.getHeaders()
             };
 
