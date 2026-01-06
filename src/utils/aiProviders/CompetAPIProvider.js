@@ -220,7 +220,8 @@ class CompetAPIProvider extends BaseProvider {
                 "cfg_scale": Number(cfg_scale)
             };
 
-            const response = await fetch(`${this.baseUrl}/kling/v1/videos/image2video`, {
+            // Use direct URL as Kling endpoint structure differs from base v1
+            const response = await fetch(`https://api.cometapi.com/kling/v1/videos/image2video`, {
                 method: "POST",
                 headers: {
                     "Authorization": `Bearer ${this.apiKey}`,
