@@ -346,11 +346,12 @@ export const getDashboardStats = async (req, res) => {
             .sort({ createdAt: -1 })
             .limit(3);
 
-        const debitTransactions = await Transaction.aggregate([
-            { $match: { user: user._id, type: "debit" } },
-            { $group: { _id: null, total: { $sum: "$amount" } } }
-        ]);
-        const creditsUsed = debitTransactions[0]?.total || 0;
+        // Calculate credits used from user's credit history
+        // Sum the absolute value of all negative "usage" or "generation" entries
+        const creditsUsed = user.creditHistory
+            .filter(item => ["usage", "generation"].includes(item.type) && item.amount < 0)
+            .reduce((acc, item) => acc + Math.abs(item.amount), 0);
+
         const timeSavedHours = totalProjects * 2;
 
         res.status(200).json({
