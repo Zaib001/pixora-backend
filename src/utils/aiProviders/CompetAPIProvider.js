@@ -107,16 +107,19 @@ class CompetAPIProvider extends BaseProvider {
             // Construct FormData with ONLY the 4 allowed fields
             const formData = new FormData();
             formData.append("prompt", prompt);
-            formData.append("model", model);
+            formData.append("model", "sora-2"); // Hardcoded as requested
             formData.append("seconds", seconds);
             formData.append("size", size);
 
+            // Prepare headers - using form-data package requires getHeaders() for boundary
+            const headers = {
+                "Authorization": `Bearer ${this.apiKey}`,
+                ...formData.getHeaders()
+            };
+
             const submitResponse = await fetch(`${this.baseUrl}/videos`, {
                 method: "POST",
-                headers: {
-                    "Authorization": `Bearer ${this.apiKey}`
-                    // boundary is set automatically by fetch+FormData
-                },
+                headers: headers,
                 body: formData,
             });
 
