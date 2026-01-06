@@ -616,36 +616,53 @@ export const streamImage = async (req, res) => {
 
         // Fallback to remote URL if available
         if (content.remoteUrl) {
+            console.log(`[Stream] File not found locally, falling back to remote URL: ${content.remoteUrl}`);
 
-            const config = await AIConfig.findOne({ configKey: "global" });
-            const apiKey = config ? config.getApiKey("competapi") : process.env.COMPETAPI_KEY;
-
-            const response = await fetch(content.remoteUrl, {
-                headers: {
-                    "Authorization": `Bearer ${apiKey}`
+            try {
+                // Check if it's an external URL (starts with http)
+                if (!content.remoteUrl.startsWith('http')) {
+                    throw new Error(`Invalid remote URL: ${content.remoteUrl}`);
                 }
-            });
 
-            if (!response.ok) {
+                const config = await AIConfig.findOne({ configKey: "global" });
+                const apiKey = config ? config.getApiKey("competapi") : process.env.COMPETAPI_KEY;
+
+                // Try fetching with API key first (for protected URLs)
+                const fetchOptions = {
+                    headers: {}
+                };
+
+                // Only add Authorization if it's a CompetAPI URL
+                if (content.remoteUrl.includes('cometapi.com') || content.remoteUrl.includes('competapi.com')) {
+                    fetchOptions.headers["Authorization"] = `Bearer ${apiKey}`;
+                }
+
+                const response = await fetch(content.remoteUrl, fetchOptions);
+
+                if (!response.ok) {
+                    console.error(`[Stream] Upstream fetch failed (${response.status}): ${content.remoteUrl}`);
+                    res.setHeader("Access-Control-Allow-Origin", "*");
+                    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+                    return res.status(404).send("Upstream image not found");
+                }
+
+                // SET CORS HEADERS
                 res.setHeader("Access-Control-Allow-Origin", "*");
                 res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-                return res.status(404).send("Upstream image not found");
+                res.setHeader("Content-Type", "image/png");
+                res.setHeader("Cache-Control", "public, max-age=31536000");
+
+                if (req.query.download === 'true') {
+                    res.setHeader('Content-Disposition', `attachment; filename="pixora-image-${id}.png"`);
+                }
+
+                const { pipeline } = await import('stream/promises');
+                const { Readable } = await import('stream');
+                await pipeline(Readable.fromWeb(response.body), res);
+                return;
+            } catch (fallbackError) {
+                console.error("[Stream] Fallback error:", fallbackError.message);
             }
-
-            // SET CORS HEADERS
-            res.setHeader("Access-Control-Allow-Origin", "*");
-            res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-            res.setHeader("Content-Type", "image/png");
-            res.setHeader("Cache-Control", "public, max-age=31536000");
-
-            if (req.query.download === 'true') {
-                res.setHeader('Content-Disposition', `attachment; filename="pixora-image-${id}.png"`);
-            }
-
-            const { pipeline } = await import('stream/promises');
-            const { Readable } = await import('stream');
-            await pipeline(Readable.fromWeb(response.body), res);
-            return;
         }
 
         // If no local file and no remote URL
@@ -831,71 +848,61 @@ export const streamVideo = async (req, res) => {
             return;
         }
 
-        // Fallback to remote URL
-        let remoteUrl = content.remoteUrl;
+        // Fallback to remote URL if available
+        if (content.remoteUrl) {
+            console.log(`[Stream] Video file not found locally, falling back to remote URL: ${content.remoteUrl}`);
 
-        if (!remoteUrl && content.url && content.url.startsWith('http') && !content.url.includes('/api/content/stream/')) {
-            remoteUrl = content.url;
-        }
+            try {
+                // Check if it's an external URL
+                if (!content.remoteUrl.startsWith('http')) {
+                    throw new Error(`Invalid remote URL: ${content.remoteUrl}`);
+                }
 
-        if (!remoteUrl) {
-            res.setHeader("Access-Control-Allow-Origin", "*");
-            res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-            return res.status(404).send("Video not found or link expired");
-        }
+                const config = await AIConfig.findOne({ configKey: "global" });
+                const apiKey = config ? config.getApiKey("competapi") : process.env.COMPETAPI_KEY;
 
+                const fetchOptions = {
+                    headers: {}
+                };
 
-        const config = await AIConfig.findOne({ configKey: "global" });
-        const apiKey = config ? config.getApiKey("competapi") : process.env.COMPETAPI_KEY;
+                if (content.remoteUrl.includes('cometapi.com') || content.remoteUrl.includes('competapi.com')) {
+                    fetchOptions.headers["Authorization"] = `Bearer ${apiKey}`;
+                }
 
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 30000);
+                const response = await fetch(content.remoteUrl, fetchOptions);
+                if (!response.ok) {
+                    console.error(`[Stream] Upstream video fetch failed (${response.status}): ${content.remoteUrl}`);
+                    res.setHeader("Access-Control-Allow-Origin", "*");
+                    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+                    return res.status(404).send("Upstream video not found");
+                }
 
-        try {
-            const response = await fetch(remoteUrl, {
-                headers: {
-                    "Authorization": `Bearer ${apiKey}`
-                },
-                signal: controller.signal
-            });
-
-            clearTimeout(timeout);
-
-            if (!response.ok) {
-                console.error(`Upstream video fetch failed: ${response.status} ${response.statusText}`);
+                // Streaming headers
                 res.setHeader("Access-Control-Allow-Origin", "*");
                 res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-                return res.status(404).send("Upstream video not found");
-            }
+                res.setHeader("Content-Type", "video/mp4");
+                res.setHeader("Cache-Control", "public, max-age=31536000");
 
-            // SET CORS HEADERS BEFORE STREAMING
-            res.setHeader("Access-Control-Allow-Origin", "*");
-            res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-            res.setHeader("Content-Type", "video/mp4");
+                if (req.query.download === 'true') {
+                    res.setHeader('Content-Disposition', `attachment; filename="pixora-video-${id}.mp4"`);
+                }
 
-            if (req.query.download === 'true') {
-                res.setHeader('Content-Disposition', `attachment; filename="pixora-video-${id}.mp4"`);
-            }
-
-            const contentLength = response.headers.get("content-length");
-            if (contentLength) {
-                res.setHeader("Content-Length", contentLength);
-            }
-
-            const { pipeline } = await import('stream/promises');
-            const { Readable } = await import('stream');
-
-            await pipeline(Readable.fromWeb(response.body), res);
-
-        } catch (fetchError) {
-            clearTimeout(timeout);
-            console.error("Fetch error for video streaming:", fetchError);
-            if (!res.headersSent) {
-                res.setHeader("Access-Control-Allow-Origin", "*");
-                res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-                res.status(500).send("Failed to stream video from remote source");
+                const { pipeline } = await import('stream/promises');
+                const { Readable } = await import('stream');
+                await pipeline(Readable.fromWeb(response.body), res);
+                return;
+            } catch (fallbackError) {
+                console.error("[Stream] Video fallback error:", fallbackError.message);
             }
         }
+
+        // If no local file and no remote URL
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+        return res.status(404).json({
+            success: false,
+            message: "Video file not found"
+        });
 
     } catch (error) {
         console.error("Stream Video Error:", error);

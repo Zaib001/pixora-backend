@@ -7,13 +7,28 @@ export const corsMiddleware = (req, res, next) => {
         "http://localhost:3000"
     ];
 
+    // Add CLIENT_URL from environment if it exists
+    if (process.env.CLIENT_URL) {
+        const clientUrls = process.env.CLIENT_URL.split(',').map(url => url.trim());
+        clientUrls.forEach(url => {
+            if (!allowedOrigins.includes(url)) {
+                allowedOrigins.push(url);
+            }
+        });
+    }
+
     const origin = req.headers.origin;
 
-    // Always set CORS headers for all origins during development
+    // Always set CORS headers for all origins during development or if environment variable is set
     if (process.env.NODE_ENV === 'development') {
         res.setHeader('Access-Control-Allow-Origin', origin || '*');
-    } else if (origin && allowedOrigins.includes(origin)) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
+    } else if (origin) {
+        if (allowedOrigins.includes(origin)) {
+            res.setHeader('Access-Control-Allow-Origin', origin);
+        } else if (origin.endsWith('.vercel.app')) {
+            // Allow all Vercel previews if needed, or stick to explicit list
+            res.setHeader('Access-Control-Allow-Origin', origin);
+        }
     }
 
     res.setHeader('Access-Control-Allow-Credentials', 'true');

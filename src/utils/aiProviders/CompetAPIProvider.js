@@ -18,8 +18,15 @@ class CompetAPIProvider extends BaseProvider {
     constructor(apiKey, config = {}) {
         super(apiKey, config);
         this.baseUrl = "https://api.cometapi.com/v1";
-        this.pollInterval = 10000; // 10 seconds
-        this.maxPollAttempts = 60; // 10 minutes total
+        this.maxPollAttempts = 30; // 30 attempts
+        this.pollInterval = 5000; // 5 seconds
+    }
+
+    _getOutputDir() {
+        if (process.env.VERCEL) {
+            return path.join('/', 'tmp', 'generated');
+        }
+        return path.join(process.cwd(), "public", "generated");
     }
 
     /**
@@ -531,7 +538,7 @@ class CompetAPIProvider extends BaseProvider {
 
                         // Save image
                         const imageId = `edit-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                        const outputDir = path.join(process.cwd(), "public", "generated");
+                        const outputDir = this._getOutputDir();
                         if (!fs.existsSync(outputDir)) {
                             fs.mkdirSync(outputDir, { recursive: true });
                         }
@@ -794,7 +801,7 @@ class CompetAPIProvider extends BaseProvider {
                     // We'll rely on the controller to handle saving or stream it if we return the right format
                     // But to be safe and consistent with previous code, let's return it struct
                     // Save image locally
-                    const outputDir = path.join(process.cwd(), "public", "generated");
+                    const outputDir = this._getOutputDir();
                     if (!fs.existsSync(outputDir)) {
                         fs.mkdirSync(outputDir, { recursive: true });
                     }
@@ -884,7 +891,7 @@ class CompetAPIProvider extends BaseProvider {
     async downloadImage(imageId, directUrl = null) {
         try {
 
-            const outputDir = path.join(process.cwd(), "public", "generated");
+            const outputDir = this._getOutputDir();
             if (!fs.existsSync(outputDir)) {
                 fs.mkdirSync(outputDir, { recursive: true });
             }
