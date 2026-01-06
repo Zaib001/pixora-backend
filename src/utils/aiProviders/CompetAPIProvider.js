@@ -111,29 +111,21 @@ class CompetAPIProvider extends BaseProvider {
             formData.append("seconds", seconds);
             formData.append("size", size);
 
-            // Calculate content length explicitly to avoid EOF errors with node-fetch/axios
-            const getLength = (formData) => {
-                return new Promise((resolve, reject) => {
-                    formData.getLength((err, length) => {
-                        if (err) reject(err);
-                        else resolve(length);
-                    });
-                });
-            };
+            // Convert to Buffer to avoid stream EOF or Length Mismatch errors
+            // This is safe for small text requests and ensures headers are perfect
+            const payloadBuffer = formData.getBuffer();
 
-            const contentLength = await getLength(formData);
-
-            // Prepare headers - include Length and Boundary
+            // Prepare headers - form-data getHeaders() includes the boundary
             const headers = {
                 "Authorization": `Bearer ${this.apiKey}`,
-                "Content-Length": contentLength,
-                ...formData.getHeaders()
+                ...formData.getHeaders(),
+                "Content-Length": payloadBuffer.length
             };
 
             const submitResponse = await fetch(`${this.baseUrl}/videos`, {
                 method: "POST",
                 headers: headers,
-                body: formData,
+                body: payloadBuffer,
             });
 
             if (!submitResponse.ok) {
