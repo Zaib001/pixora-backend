@@ -36,11 +36,13 @@ class CompetAPIProvider extends BaseProvider {
         const { type, prompt, model: modelId, aspectRatio, duration, imageUrl, cfg_scale, mask, quality, size, n, mode } = params;
 
         // Determine if it's video or image generation
+        // Determine if it's video or image generation
         if (type === "video") {
+            const enhancedPrompt = this._enhancePrompt(prompt, params.style, "video");
             if (imageUrl) {
-                return await this.generateImageToVideo(imageUrl, prompt, duration, mode, cfg_scale);
+                return await this.generateImageToVideo(imageUrl, enhancedPrompt, duration, mode, cfg_scale);
             }
-            return await this.generateVideo(prompt, modelId, aspectRatio, duration);
+            return await this.generateVideo(enhancedPrompt, modelId, aspectRatio, duration);
         } else if (type === "image") {
             // Check if it's image editing (has imageUrl + prompt) or generation
             if (imageUrl && prompt) {
@@ -965,6 +967,46 @@ class CompetAPIProvider extends BaseProvider {
             console.error("Connection test failed:", error);
             return false;
         }
+    }
+
+    /**
+     * Enhance prompt with style descriptors
+     */
+    _enhancePrompt(basePrompt, style, type) {
+        if (!basePrompt && type === "imageToVideo") {
+            basePrompt = "High quality animation, bringing the image to life";
+        }
+
+        const base = basePrompt || "";
+        let suffix = "";
+
+        // Quality boosters (Universal)
+        const qualityKeywords = "8k resolution, cinematic lighting, high fidelity, sharp details, professional color grading";
+
+        // Style Mappings
+        const styles = {
+            "cinematic": ", dramatic atmosphere, movie scene, wide angle, depth of field, anamorphic lens flares, film grain",
+            "animated": ", stylized 3d animation, pixar style, vibrant colors, expressive motion, smooth rendering",
+            "realistic": ", photorealistic, hyper-realistic, documentary style, natural lighting, 4k raw footage",
+            "artistic": ", painterly style, oil painting, brush strokes, artistic composition, masterpiece, detailed",
+            "dynamic": ", fast paced, motion blur, dynamic camera movements, action packed, high energy",
+            "cyberpunk": ", neon lights, futuristic city, rain, reflections, high contrast, tech noir",
+            "fantasy": ", magical atmosphere, ethereal lighting, dreamlike, soft focus, mystical particles",
+            "anime": ", anime style, cel shaded, vibrant, 2d animation aesthetics, studio ghibli inspired",
+            "3dRender": ", octane render, unreal engine 5, ray tracing, global illumination, highly detailed 3d model"
+        };
+
+        if (style && styles[style]) {
+            suffix += styles[style];
+        }
+
+        // Add quality keywords if they aren't already implicitly covered
+        if (!suffix.includes("film grain") && !suffix.includes("2d")) {
+            suffix += `, ${qualityKeywords}`;
+        }
+
+        // Clean up
+        return `${base}${suffix}`.replace(/,\s*,/g, ",").trim();
     }
 }
 
