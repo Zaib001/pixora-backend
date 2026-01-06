@@ -173,9 +173,8 @@ export const generateContent = async (req, res) => {
             // Extract data from generationResult
             generationId = generationResult.generationId || generationResult.id || generationResult.task_id || `gen-${Date.now()}`;
 
-            // For videos, extract the actual remote URL (CompetAPI URL or local path)
+            // Priority: remoteUrl (actual CompetAPI URL) > localPath > other URL fields
             if (type === "video") {
-                // Priority: remoteUrl (actual CompetAPI URL) > localPath > other URL fields
                 if (generationResult.remoteUrl) {
                     remoteUrl = generationResult.remoteUrl;
                 } else if (generationResult.localPath) {
@@ -187,22 +186,27 @@ export const generateContent = async (req, res) => {
                 } else if (generationResult.data?.url) {
                     remoteUrl = generationResult.data.url;
                 } else if (generationResult.url && !generationResult.url.includes('/api/content/stream')) {
-                    // Only use generationResult.url if it's not a streaming endpoint
                     remoteUrl = generationResult.url;
                 }
 
+                // Determine base URL for streaming
+                const host = req.get('host');
+                const protocol = (host.includes('vercel.app') || req.headers['x-forwarded-proto'] === 'https') ? 'https' : req.protocol;
+                const baseUrl = process.env.BACKEND_URL || `${protocol}://${host}`;
 
-                // Create streaming URL for the video (this is what frontend will use)
-                const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
                 resultUrl = `${baseUrl}/api/content/stream/video/${generationId}`;
 
-            } else if (type === "image" && generationResult.localPath) {
-                // For locally saved images
-                const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
+            } else if (type === "image") {
+                // For images, prioritize local path if it exists for streaming, otherwise use remote
+                remoteUrl = generationResult.remoteUrl || generationResult.url;
+
+                const host = req.get('host');
+                const protocol = (host.includes('vercel.app') || req.headers['x-forwarded-proto'] === 'https') ? 'https' : req.protocol;
+                const baseUrl = process.env.BACKEND_URL || `${protocol}://${host}`;
+
                 resultUrl = `${baseUrl}/api/content/stream/image/${generationId}`;
-                remoteUrl = generationResult.remoteUrl; // MUST be the remote URL, not localPath!
             } else {
-                // Fallback for other types
+                // Fallback
                 resultUrl = generationResult.url || generationResult.localUrl;
                 remoteUrl = generationResult.remoteUrl || null;
             }
@@ -634,6 +638,10 @@ export const streamImage = async (req, res) => {
             res.setHeader("Content-Type", "image/png");
             res.setHeader("Cache-Control", "public, max-age=31536000");
 
+            if (req.query.download === 'true') {
+                res.setHeader('Content-Disposition', `attachment; filename="pixora-image-${id}.png"`);
+            }
+
             const { pipeline } = await import('stream/promises');
             const { Readable } = await import('stream');
             await pipeline(Readable.fromWeb(response.body), res);
@@ -804,12 +812,18 @@ export const streamVideo = async (req, res) => {
                 fileStream.pipe(res);
             } else {
                 // Full file request
-                res.writeHead(200, {
+                const headers = {
                     'Content-Length': fileSize,
                     'Content-Type': 'video/mp4',
                     'Access-Control-Allow-Origin': '*',
                     'Cross-Origin-Resource-Policy': 'cross-origin',
-                });
+                };
+
+                if (req.query.download === 'true') {
+                    headers['Content-Disposition'] = `attachment; filename="pixora-video-${id}.mp4"`;
+                }
+
+                res.writeHead(200, headers);
 
                 const fileStream = fs.createReadStream(localPath);
                 fileStream.pipe(res);
