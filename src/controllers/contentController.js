@@ -161,6 +161,7 @@ export const generateContent = async (req, res) => {
                 style,
                 imageUrl: req.body.imageUrl || req.body.image,
                 cfg_scale: req.body.cfg_scale || req.body.cfgScale,
+                mode: req.body.mode, // Added mode
                 // Image editing parameters
                 mask: req.body.mask,
                 quality: req.body.quality,

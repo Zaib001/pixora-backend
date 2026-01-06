@@ -33,12 +33,12 @@ class CompetAPIProvider extends BaseProvider {
      * Generate content (video or image)
      */
     async generate(params) {
-        const { type, prompt, model: modelId, aspectRatio, duration, imageUrl, cfg_scale, mask, quality, size, n } = params;
+        const { type, prompt, model: modelId, aspectRatio, duration, imageUrl, cfg_scale, mask, quality, size, n, mode } = params;
 
         // Determine if it's video or image generation
         if (type === "video") {
             if (imageUrl) {
-                return await this.generateImageToVideo(imageUrl, prompt, duration, cfg_scale);
+                return await this.generateImageToVideo(imageUrl, prompt, duration, mode, cfg_scale);
             }
             return await this.generateVideo(prompt, modelId, aspectRatio, duration);
         } else if (type === "image") {
@@ -182,28 +182,45 @@ class CompetAPIProvider extends BaseProvider {
     /**
      * Generate Image-to-Video using Kling v1
      */
-    async generateImageToVideo(imageUrl, prompt, duration, cfg_scale) {
+    /**
+     * Generate Image-to-Video using Kling v1
+     */
+    async generateImageToVideo(imageUrl, prompt, duration, mode, cfg_scale = 0.5) {
         try {
+            // Strict Parameter Enforcement for Kling API
 
-            // Strip data:image/...;base64, prefix if present, as API likely wants raw base64
+            // 1. Image Processing: Ensure raw Base64 if data URI provided
             let processedImage = imageUrl;
             if (imageUrl && imageUrl.startsWith('data:')) {
                 processedImage = imageUrl.split(',')[1];
             }
 
-            // Construct JSON payload as per user request
+            // 2. Duration: Strictly "5" or "10" (defaults to "5")
+            let validDuration = "5";
+            if (String(duration) === "10") {
+                validDuration = "10";
+            }
+
+            // 3. Mode: "std" or "pro" (defaults to "pro" as per user request example)
+            // User example had "mode": "pro"
+            let validMode = "pro";
+            if (mode === "std") {
+                validMode = "std";
+            }
+
+            // Construct JSON payload
+            // Endpoint: .../kling/v1/videos/image2video
+            // Content-Type: application/json
             const payload = {
                 "model_name": "kling-v1",
-                "mode": "pro",
-                "duration": duration ? String(duration) : "5", // "5" or "10"
-                "image": processedImage,
+                "mode": validMode,
+                "duration": validDuration,
+                "image": processedImage, // Base64 or URL
                 "prompt": prompt || "Animate this image",
-                "cfg_scale": cfg_scale ? Number(cfg_scale) : 0.5
+                "cfg_scale": Number(cfg_scale)
             };
 
-
-            // Use direct URL as Kling endpoint structure differs from base v1
-            const response = await fetch(`https://api.cometapi.com/kling/v1/videos/image2video`, {
+            const response = await fetch(`${this.baseUrl}/kling/v1/videos/image2video`, {
                 method: "POST",
                 headers: {
                     "Authorization": `Bearer ${this.apiKey}`,
@@ -219,52 +236,33 @@ class CompetAPIProvider extends BaseProvider {
 
             const result = await response.json();
 
-            // Extract task_id (API returns data.task_id)
-            const taskId = result.data?.task_id || result.request_id;
+            // The result structure for Kling usually returns data.task_id or similar
+            // User example log: console.log(result)
+            // We assume standard CometAPI wrapping: { data: { task_id: ... } } or { id: ... }
+            const taskId = result.data?.task_id || result.id || result.request_id;
 
             if (!taskId) {
-                throw new Error("No task_id found in Kling response");
+                throw new Error(`No task_id found in Kling response: ${JSON.stringify(result)}`);
             }
 
-
-            // Poll for completion (Reusing video polling logic)
-            // Note: Kling endpoint might need different polling, but usually standard /videos/{id} works or we check status via request_id
-            // If standard polling fails, we might need a specific Kling polling endpoint. 
-            // Assuming the platform normalizes status checks on /videos/{id} or /kling/v1/videos/{id}
-
-            // We'll try the standard poll first. If it fails (404), we might need another strategy.
-            // But based on common patterns, the task_id returned is queryable.
-
+            // Step 2: Poll for completion
             const finalData = await this.pollVideoProgress(taskId);
 
-            // Extract video URL
-            let videoUrl = finalData?.url || finalData?.video_url || finalData?.output_url || finalData?.data?.video_url || finalData?.data?.url;
+            // Extract video URL - handle various response shapes
+            let videoUrl = finalData?.url || finalData?.video_url || finalData?.output_url;
 
-            // Check nested task_result from Kling specific structure
-            // Check nested task_result from Kling specific structure
-            // Based on logs: finalData has a 'data' property which contains 'task_result'
-            if (!videoUrl) {
-                const nestedData = finalData.data || finalData;
-                if (nestedData?.task_result?.videos) {
-                    if (nestedData.task_result.videos.length > 0) {
-                        videoUrl = nestedData.task_result.videos[0]?.url;
-                    }
-                }
+            // Nested Kling specific checks
+            if (!videoUrl && finalData?.data?.task_result?.videos?.length > 0) {
+                videoUrl = finalData.data.task_result.videos[0].url;
+            }
+            if (!videoUrl && finalData?.videos?.length > 0) {
+                videoUrl = finalData.videos[0].url;
             }
 
+            // Fallback content URL
             if (!videoUrl) {
-                // Fallback for Kling specifically
-                if (finalData?.videos && finalData.videos.length > 0) {
-                    videoUrl = finalData.videos[0].url;
-                }
+                videoUrl = `${this.baseUrl}/videos/${taskId}/content`;
             }
-
-            if (!videoUrl) {
-                // FALLBACK DEBUG: Log the ENTIRE final data structure to see where the URL is
-
-                throw new Error("Failed to retrieve video URL from completed task");
-            }
-
 
             // Download locally
             let localPath = null;
