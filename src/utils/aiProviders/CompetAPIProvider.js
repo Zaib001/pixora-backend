@@ -82,29 +82,40 @@ class CompetAPIProvider extends BaseProvider {
             // 3. Size: Default to 720x1280
             // Map common aspect ratios to allowed sizes if necessary, or pass through strict sizes
             // Allowed: 720x1280, 1280x720, 1024x1792, 1792x1024
-            let size = "720x1280";
+            let size = "1280x720"; // Default to landscape
             const allowedSizes = ["720x1280", "1280x720", "1024x1792", "1792x1024"];
 
             // Logic to handle if frontend sends "16:9" or strict size
             const sizeMap = {
                 "16:9": "1280x720",
                 "9:16": "720x1280",
-                "1:1": "1024x1024", // Note: 1:1 is NOT in the user's provided strict list for sora-2, so we might need to fallback or stick to strict list. 
-                // User said: "REMOVE EXTRA PARAMETERS AND USE AND ADD EXACT THESE VALUE"
-                // The prompt example says allowed sizes are: 720x1280, 1280x720, 1024x1792, 1792x1024
-                // So "1024x1024" should probably NOT be sent if we want to be strict.
+                "4:7": "1024x1792",
+                "7:4": "1792x1024",
+                // Also map the exact size strings to themselves for passthrough
                 "1280x720": "1280x720",
                 "720x1280": "720x1280",
                 "1024x1792": "1024x1792",
                 "1792x1024": "1792x1024"
             };
 
+            // Try to map the aspect ratio
             if (allowedSizes.includes(aspectRatio)) {
                 size = aspectRatio;
-            } else if (sizeMap[aspectRatio] && allowedSizes.includes(sizeMap[aspectRatio])) {
+            } else if (sizeMap[aspectRatio]) {
                 size = sizeMap[aspectRatio];
+            } else {
+                // Fallback: if unrecognized, default to landscape
+                console.warn(`[CompetAPI] Invalid aspect ratio "${aspectRatio}", defaulting to 1280x720`);
+                size = "1280x720";
             }
-            // If strictly 1:1 was requested, we fallback to 720x1280 or similar as it's not in the allowed list for this specific request.
+
+            // Final safety check
+            if (!allowedSizes.includes(size)) {
+                console.error(`[CompetAPI] Invalid size "${size}" after mapping, forcing to 1280x720`);
+                size = "1280x720";
+            }
+
+            console.log(`[CompetAPI] Video generation - aspect ratio: ${aspectRatio} -> size: ${size}`);
 
             // Construct FormData with ONLY the 4 allowed fields
             const formData = new FormData();
