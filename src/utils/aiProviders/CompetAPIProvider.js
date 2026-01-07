@@ -18,7 +18,7 @@ class CompetAPIProvider extends BaseProvider {
     constructor(apiKey, config = {}) {
         super(apiKey, config);
         this.baseUrl = "https://api.cometapi.com/v1";
-        this.maxPollAttempts = 30; // 30 attempts
+        this.maxPollAttempts = 120; // 120 attempts (10 minutes)
         this.pollInterval = 5000; // 5 seconds
     }
 
@@ -810,7 +810,7 @@ class CompetAPIProvider extends BaseProvider {
 
                     return {
                         url: `/api/content/stream/image/${generationId}`,
-                        remoteUrl: null,
+                        remoteUrl: remoteUrl || null, // Preserve remoteUrl if available
                         localPath: outputPath,
                         modelUsed: model,
                         generationId: generationId,
