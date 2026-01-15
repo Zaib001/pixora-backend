@@ -1,29 +1,45 @@
 import mongoose from "mongoose";
 import { config } from "./env.js";
 
-let isConnected = false;
+let cached = global.mongoose;
+
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
 
 export const connectDB = async () => {
-  if (isConnected) {
-    return;
+  if (cached.conn) {
+    console.log("✅ MongoDB Connected (Cached)");
+    return cached.conn;
+  }
+
+  if (!cached.promise) {
+    const opts = {
+      bufferCommands: false, // Disable buffering for serverless
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
+    };
+
+    console.log("⏳ Connecting to MongoDB...");
+    cached.promise = mongoose.connect(config.mongoUri, opts).then((mongoose) => {
+      console.log(`✅ MongoDB Connected: ${mongoose.connection.host}`);
+      return mongoose;
+    }).catch(error => {
+      console.error("❌ DB Connection Error:", error.message);
+      if (error.name === 'MongooseServerSelectionError') {
+        console.error("👉 Please ensure your IP address is whitelisted in MongoDB Atlas dashboard.");
+      }
+      throw error;
+    });
   }
 
   try {
-    const conn = await mongoose.connect(config.mongoUri, {
-      serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
-    });
-    isConnected = !!conn.connections[0].readyState;
-    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
-  } catch (error) {
-    if (error.name === 'MongooseServerSelectionError') {
-      console.error("❌ DB Connection Error: Could not connect to MongoDB Atlas.");
-      console.error("👉 Please ensure your IP address is whitelisted in MongoDB Atlas dashboard.");
-      console.error("🔗 Whitelist guide: https://www.mongodb.com/docs/atlas/security-whitelist/");
-    } else {
-      console.error("❌ DB Connection Error:", error.message);
-    }
-    // Don't throw if we want the app to start even without DB (optional, but usually we want it to crash)
-    throw error;
+    cached.conn = await cached.promise;
+  } catch (e) {
+    cached.promise = null;
+    throw e;
   }
+
+  return cached.conn;
 };
 

@@ -47,9 +47,9 @@ class CompetAPIProvider extends BaseProvider {
         if (type === "video") {
             const enhancedPrompt = this._enhancePrompt(prompt, params.style, "video");
             if (imageUrl) {
-                return await this.generateImageToVideo(imageUrl, enhancedPrompt, duration, mode, cfg_scale);
+                return await this.generateImageToVideo(imageUrl, enhancedPrompt, duration, mode, cfg_scale, params.onProgress);
             }
-            return await this.generateVideo(enhancedPrompt, modelId, aspectRatio, duration);
+            return await this.generateVideo(enhancedPrompt, modelId, aspectRatio, duration, params.onProgress);
         } else if (type === "image") {
             // Check if it's image editing (has imageUrl + prompt) or generation
             if (imageUrl && prompt) {
@@ -67,7 +67,7 @@ class CompetAPIProvider extends BaseProvider {
     /**
      * Generate video using CompetAPI
      */
-    async generateVideo(prompt, modelId, aspectRatio, duration) {
+    async generateVideo(prompt, modelId, aspectRatio, duration, onProgress) {
         try {
             // Strict Parameter Enforcement
 
@@ -165,7 +165,7 @@ class CompetAPIProvider extends BaseProvider {
             }
 
             // Step 2: Poll for completion
-            const finalData = await this.pollVideoProgress(videoId);
+            const finalData = await this.pollVideoProgress(videoId, onProgress);
 
             // Extract video URL
             let videoUrl = finalData?.url || finalData?.video_url || finalData?.output_url || finalData?.data?.video_url || finalData?.data?.url;
@@ -188,6 +188,7 @@ class CompetAPIProvider extends BaseProvider {
                 url: `/api/content/stream/video/${videoId}`,
                 remoteUrl: videoUrl,
                 localPath: localPath,
+                thumbnailUrl: finalData?.thumbnail_url || finalData?.cover_url || finalData?.data?.thumbnail_url || null,
                 modelUsed: model,
                 generationId: videoId,
                 format: "mp4"
@@ -205,7 +206,7 @@ class CompetAPIProvider extends BaseProvider {
     /**
      * Generate Image-to-Video using Kling v1
      */
-    async generateImageToVideo(imageUrl, prompt, duration, mode, cfg_scale = 0.5) {
+    async generateImageToVideo(imageUrl, prompt, duration, mode, cfg_scale = 0.5, onProgress) {
         try {
             // Strict Parameter Enforcement for Kling API
 
@@ -267,7 +268,7 @@ class CompetAPIProvider extends BaseProvider {
             }
 
             // Step 2: Poll for completion
-            const finalData = await this.pollVideoProgress(taskId);
+            const finalData = await this.pollVideoProgress(taskId, onProgress);
 
             // Extract video URL - handle various response shapes
             let videoUrl = finalData?.url || finalData?.video_url || finalData?.output_url;
@@ -298,6 +299,7 @@ class CompetAPIProvider extends BaseProvider {
                 url: `/api/content/stream/video/${taskId}`,
                 remoteUrl: videoUrl,
                 localPath: localPath,
+                thumbnailUrl: finalData?.thumbnail_url || finalData?.cover_url || finalData?.data?.thumbnail_url || null,
                 modelUsed: "kling-v1",
                 generationId: taskId,
                 format: "mp4"
@@ -312,7 +314,7 @@ class CompetAPIProvider extends BaseProvider {
     /**
      * Poll for video generation progress
      */
-    async pollVideoProgress(videoId) {
+    async pollVideoProgress(videoId, onProgress) {
 
         let attempts = 0;
 
@@ -338,6 +340,20 @@ class CompetAPIProvider extends BaseProvider {
                 const progress = data.progress || "0%";
                 // Check both 'status' and 'task_status' (Kling uses task_status)
                 const status = data.status || data.task_status || "unknown";
+
+                // Report progress if callback provided
+                if (onProgress && typeof onProgress === 'function') {
+                    try {
+                        const numericProgress = parseInt(progress.replace('%', '')) || 0;
+                        onProgress({
+                            progress: numericProgress,
+                            status: status.toLowerCase(),
+                            data: data
+                        });
+                    } catch (e) {
+                        console.warn("[CompetAPI] Failed to report progress:", e.message);
+                    }
+                }
 
 
                 // Check for failure - THROW OUTSIDE CATCH to prevent retry

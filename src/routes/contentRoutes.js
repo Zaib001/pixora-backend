@@ -10,7 +10,8 @@ import {
     streamVideo,
     streamImage,
     enhancePrompt,
-    deleteContent
+    deleteContent,
+    getContentStatus
 } from "../controllers/contentController.js";
 
 const router = express.Router();
@@ -44,6 +45,11 @@ router.get("/dashboard-stats", protect, getDashboardStats);
 // @route   GET /api/content/history
 // @access  Private
 router.get("/history", protect, getContentHistory);
+
+// @desc    Get Content Status
+// @route   GET /api/content/status/:id
+// @access  Private
+router.get("/status/:id", protect, getContentStatus);
 
 // @desc    Stream Video
 // @route   GET /api/content/stream/video/:videoId

@@ -18,7 +18,7 @@ const contentSchema = new mongoose.Schema(
         },
         url: {
             type: String,
-            required: true,
+            required: false,
         },
         thumbnailUrl: {
             type: String,
@@ -38,6 +38,18 @@ const contentSchema = new mongoose.Schema(
             provider: { type: String, default: "comet" },
             modelId: String,
         },
+        status: {
+            type: String,
+            enum: ["pending", "processing", "completed", "failed"],
+            default: "pending",
+        },
+        progress: {
+            type: Number,
+            default: 0,
+        },
+        error: {
+            type: String,
+        },
         isPublic: {
             type: Boolean,
             default: false,
@@ -53,11 +65,6 @@ const contentSchema = new mongoose.Schema(
         metadata: {
             type: mongoose.Schema.Types.Mixed,
             default: {}
-        },
-        status: {
-            type: String,
-            enum: ["processing", "completed", "failed"],
-            default: "processing",
         },
     },
     {

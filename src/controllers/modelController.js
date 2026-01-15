@@ -53,6 +53,37 @@ export const getAllModels = async (req, res) => {
     }
 };
 
+// @desc    Get active models (for template creation)
+// @route   GET /api/models/active
+// @access  Public
+export const getActiveModels = async (req, res) => {
+    try {
+        const { type } = req.query; // 'image' or 'video'
+
+        const query = { status: 'active' };
+        if (type) {
+            query.type = type;
+        }
+
+        const models = await Model.find(query)
+            .select('modelId name type description parameters specifications')
+            .sort({ displayOrder: 1, name: 1 })
+            .lean();
+
+        res.status(200).json({
+            success: true,
+            data: models
+        });
+    } catch (error) {
+        console.error('Get Active Models Error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to retrieve active models.',
+            error: error.message
+        });
+    }
+};
+
 // @desc    Create a new model
 // @route   POST /api/admin/models
 // @access  Private/SuperAdmin
@@ -68,6 +99,7 @@ export const createModel = async (req, res) => {
             description,
             tags,
             isPopular,
+            parameters,
         } = req.body;
 
         // Check if model already exists
@@ -89,6 +121,7 @@ export const createModel = async (req, res) => {
             description,
             tags,
             isPopular,
+            parameters: parameters || [],
             status: "active",
         });
 
@@ -236,12 +269,12 @@ export const toggleModelStatus = async (req, res) => {
     }
 };
 
-// @desc    Save API keys (encrypted)
+// @desc    Save API keys and Integration settings (encrypted/global)
 // @route   POST /api/admin/config/api-keys
 // @access  Private/SuperAdmin
 export const saveAPIKeys = async (req, res) => {
     try {
-        const { competapi, openai, deepseek, rateLimits, timeouts } = req.body;
+        const { competapi, openai, deepseek, rateLimits, timeouts, integrations, features } = req.body;
 
         let config = await AIConfig.findOne({ configKey: "global" });
 
@@ -255,23 +288,89 @@ export const saveAPIKeys = async (req, res) => {
         if (deepseek) config.setApiKey("deepseek", deepseek);
 
         // Update other settings
-        if (rateLimits) config.rateLimits = { ...config.rateLimits, ...rateLimits };
-        if (timeouts) config.timeouts = { ...config.timeouts, ...timeouts };
+        if (rateLimits) {
+            config.rateLimits = { ...config.rateLimits, ...rateLimits };
+            config.markModified('rateLimits');
+        }
+        if (timeouts) {
+            config.timeouts = { ...config.timeouts, ...timeouts };
+            config.markModified('timeouts');
+        }
+        if (integrations) {
+            config.integrations = {
+                tidioEnabled: integrations.tidioEnabled,
+                tidioScriptId: integrations.tidioScriptId || config.integrations?.tidioScriptId
+            };
+            config.markModified('integrations');
+        }
+        if (features) {
+            config.features = { ...config.features, ...features };
+            config.markModified('features');
+        }
 
         await config.save();
 
         res.status(200).json({
             success: true,
-            message: "API keys saved successfully.",
+            message: "Configuration saved successfully.",
             data: {
                 maskedKeys: config.getMaskedKeys(),
+                integrations: config.integrations,
+                features: config.features
             },
         });
     } catch (error) {
         console.error("Save API Keys Error:", error);
         res.status(500).json({
             success: false,
-            message: "Failed to save API keys.",
+            message: "Failed to save configuration.",
+            error: error.message,
+        });
+    }
+};
+
+// @desc    Get public configuration (non-sensitive)
+// @route   GET /api/config
+// @access  Public
+export const getPublicConfig = async (req, res) => {
+    try {
+        const config = await AIConfig.findOne({ configKey: "global" });
+        console.log(`[getPublicConfig] Fetching global config. Found: ${!!config}`);
+
+        if (!config) {
+            console.log("[getPublicConfig] No global config found, returning defaults.");
+            return res.status(200).json({
+                success: true,
+                data: {
+                    integrations: {
+                        tidioEnabled: true,
+                        tidioScriptId: "hq4xyf3vsguzrmfqwys6kodan18zxbdk"
+                    },
+                    features: {
+                        enableAIIdeas: true,
+                        enableAsyncGeneration: true
+                    }
+                }
+            });
+        }
+
+        console.log(`[getPublicConfig] Integrations:`, config.integrations);
+
+        res.status(200).json({
+            success: true,
+            data: {
+                integrations: config.integrations,
+                features: {
+                    enableAIIdeas: config.features?.enableAIIdeas,
+                    enableAsyncGeneration: config.features?.enableAsyncGeneration
+                }
+            },
+        });
+    } catch (error) {
+        console.error("Get Public Config Error:", error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to retrieve configuration.",
             error: error.message,
         });
     }

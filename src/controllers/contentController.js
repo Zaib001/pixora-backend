@@ -54,7 +54,7 @@ export const generateContent = async (req, res) => {
                 cost = selectedModel.pricing.costPerImage;
             }
         } else {
-            const defaultModelId = type === "image" ? "gpt-image-1.5" : "sora-2";
+            const defaultModelId = type === "image" ? "dall-e-3" : "sora-2";
 
             selectedModel = await Model.findOne({
                 modelId: defaultModelId,
@@ -104,143 +104,18 @@ export const generateContent = async (req, res) => {
             await user.useCredits(cost, `Generated ${type}: ${prompt.substring(0, 20)}...`);
         }
 
-        // --- 4. Real AI Content Generation ---
+        // --- 4. Real AI Content Generation (Asynchronous) ---
         const config = await AIConfig.findOne({ configKey: "global" });
-        let generationStartTime = Date.now();
-
-        if (config) {
-        }
-
         const useMockMode = !config || config.features.enableMockMode;
 
-        if (useMockMode || !selectedModel) {
-            await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 2000));
-
-            const MOCK_VIDEOS = [
-                "https://assets.mixkit.co/videos/preview/mixkit-waves-coming-to-the-beach-5016-large.mp4",
-                "https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-1610-large.mp4",
-                "https://assets.mixkit.co/videos/preview/mixkit-white-clouds-in-the-blue-sky-1428-large.mp4",
-                "https://assets.mixkit.co/videos/preview/mixkit-forest-stream-in-the-sunlight-529-large.mp4"
-            ];
-
-            const MOCK_IMAGES = [
-                "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?q=80&w=1974&auto=format&fit=crop",
-                "https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=2864&auto=format&fit=crop",
-                "https://images.unsplash.com/photo-1506744038136-46273834b3fb?q=80&w=3270&auto=format&fit=crop",
-                "https://images.unsplash.com/photo-1472214103451-9374bd1c798e?q=80&w=2940&auto=format&fit=crop"
-            ];
-
-            if (type === "video") {
-                resultUrl = MOCK_VIDEOS[Math.floor(Math.random() * MOCK_VIDEOS.length)];
-                thumbnailUrl = "https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?q=80&w=1000&auto=format&fit=crop";
-                generationId = `mock-video-${Date.now()}`;
-            } else {
-                resultUrl = MOCK_IMAGES[Math.floor(Math.random() * MOCK_IMAGES.length)];
-                thumbnailUrl = resultUrl;
-                generationId = `mock-image-${Date.now()}`;
-            }
-        } else {
-            const apiKey = config.getApiKey("competapi");
-
-            if (!apiKey) {
-                throw new Error("CompetAPI key not configured.");
-            }
-
-            const provider = new CompetAPIProvider(apiKey, {
-                timeout: config.timeouts.requestTimeout,
-                maxRetries: config.features.maxRetries,
-            });
-
-
-            const generationResult = await provider.generate({
-                model: modelId,
-                prompt,
-                type,
-                aspectRatio,
-                duration: type === "video" ? duration : undefined,
-                style,
-                imageUrl: req.body.imageUrl || req.body.image,
-                cfg_scale: req.body.cfg_scale || req.body.cfgScale,
-                mode: req.body.mode, // Added mode
-                // Image editing parameters
-                mask: req.body.mask,
-                quality: req.body.quality,
-                size: req.body.size,
-                n: req.body.n
-            });
-
-
-            // Extract data from generationResult
-            generationId = generationResult.generationId || generationResult.id || generationResult.task_id || `gen-${Date.now()}`;
-
-            // Priority: remoteUrl (actual CompetAPI URL) > localPath > other URL fields
-            if (type === "video") {
-                if (generationResult.remoteUrl) {
-                    remoteUrl = generationResult.remoteUrl;
-                } else if (generationResult.localPath) {
-                    remoteUrl = generationResult.localPath;
-                } else if (generationResult.data?.result) {
-                    remoteUrl = generationResult.data.result;
-                } else if (generationResult.videoUrl) {
-                    remoteUrl = generationResult.videoUrl;
-                } else if (generationResult.data?.url) {
-                    remoteUrl = generationResult.data.url;
-                } else if (generationResult.url && !generationResult.url.includes('/api/content/stream')) {
-                    remoteUrl = generationResult.url;
-                }
-
-                // Determine base URL for streaming
-                const host = req.get('host');
-                const protocol = (host.includes('vercel.app') || req.headers['x-forwarded-proto'] === 'https') ? 'https' : req.protocol;
-                const baseUrl = process.env.BACKEND_URL || `${protocol}://${host}`;
-
-                resultUrl = `${baseUrl}/api/content/stream/video/${generationId}`;
-
-            } else if (type === "image") {
-                // For images, prioritize local path if it exists for streaming, otherwise use remote
-                remoteUrl = generationResult.remoteUrl || generationResult.url;
-
-                const host = req.get('host');
-                const protocol = (host.includes('vercel.app') || req.headers['x-forwarded-proto'] === 'https') ? 'https' : req.protocol;
-                const baseUrl = process.env.BACKEND_URL || `${protocol}://${host}`;
-
-                resultUrl = `${baseUrl}/api/content/stream/image/${generationId}`;
-            } else {
-                // Fallback
-                resultUrl = generationResult.url || generationResult.localUrl;
-                remoteUrl = generationResult.remoteUrl || null;
-            }
-
-            thumbnailUrl = generationResult.thumbnailUrl || resultUrl;
-
-            metadataFromProvider = {
-                ...generationResult.metadata,
-                ...generationResult.data,
-                format: generationResult.format,
-                modelUsed: generationResult.modelUsed,
-                localPath: generationResult.localPath,
-                task_id: generationResult.task_id,
-                status: generationResult.status,
-                progress: generationResult.progress
-            };
-
-
-            const generationTime = Math.floor((Date.now() - generationStartTime) / 1000);
-            if (selectedModel) {
-                await selectedModel.incrementGenerationStats(true, generationTime);
-            }
-        }
-
-        // --- 5. Save Content Record ---
+        // Create initial content record
         const content = await Content.create({
             user: userId,
             type: type || "video",
             prompt: prompt,
             style: style || "realistic",
-            url: resultUrl,
-            remoteUrl: remoteUrl,
-            thumbnailUrl: thumbnailUrl,
-            status: "completed",
+            status: "pending",
+            progress: 0,
             isPublic: isPublic,
             isWatermarked: isWatermarked,
             usageCost: usedFreeGen ? 0 : cost,
@@ -251,45 +126,43 @@ export const generateContent = async (req, res) => {
                 provider: "mock",
                 modelId: "mock",
             },
-            generationId: generationId,
             metadata: {
-                ...metadataFromProvider,
                 duration: type === 'video' ? duration : 0,
-                aspectRatio: aspectRatio,
-                localFilePath: metadataFromProvider.localPath // Explicitly map this
+                aspectRatio: aspectRatio
             }
         });
 
-        // Return with immediate preview if available
-        let immediatePreview = null;
-        if (type === "image" && metadataFromProvider.localPath && fs.existsSync(metadataFromProvider.localPath)) {
-            try {
-                const imageBuffer = fs.readFileSync(metadataFromProvider.localPath);
-                immediatePreview = `data:image/png;base64,${imageBuffer.toString('base64')}`;
-            } catch (previewError) {
-                console.error("Failed to create immediate preview:", previewError);
-            }
-        }
+        // Response URL base
+        const host = req.get('host');
+        const protocol = (host.includes('vercel.app') || req.headers['x-forwarded-proto'] === 'https') ? 'https' : req.protocol;
+        const baseUrl = process.env.BACKEND_URL || `${protocol}://${host}`;
 
-        res.status(200).json({
+        // Initiate background generation
+        processGenerationInBackground({
+            contentId: content._id,
+            userId,
+            body: req.body,
+            useMockMode,
+            selectedModel,
+            cost,
+            usedFreeGen,
+            baseUrl,
+            config
+        });
+
+        return res.status(200).json({
             success: true,
-            data: {
-                ...content.toObject(),
-                autoDownload: usedFreeGen,
-                immediatePreview: immediatePreview
-            },
-            message: usedFreeGen
-                ? `🎁 Free generation used! ${user.freeGenerationsLeft} free generation${user.freeGenerationsLeft !== 1 ? 's' : ''} remaining.`
-                : `💎 ${cost} credit${cost > 1 ? 's' : ''} used! ${user.credits} credit${user.credits !== 1 ? 's' : ''} remaining.`,
+            data: content,
+            message: "Generation started. You can track progress in the dashboard.",
             isFreeGeneration: usedFreeGen,
             creditsRemaining: user.credits,
-            freeGenerationsLeft: user.freeGenerationsLeft,
-            costUsed: cost
+            freeGenerationsLeft: user.freeGenerationsLeft
         });
 
     } catch (error) {
         console.error("Generate Content Error:", error);
 
+        // Refund logic (if record wasn't created yet or other error before background task)
         try {
             const user = await User.findById(req.user.id);
             if (user) {
@@ -306,19 +179,10 @@ export const generateContent = async (req, res) => {
                     cost = type === "video" ? 2 : 1;
                 }
 
-                const wasFreeGeneration = user.freeGenerationsLeft < 3 && user.isFreeTierExhausted;
-
-                if (wasFreeGeneration || (req.body.type && user.freeGenerationsLeft < 3)) {
+                if (req.body.type && user.freeGenerationsLeft < 3) {
                     await user.restoreFreeGeneration(`${req.body.type || 'content'} generation failed`);
                 } else if (user.credits >= 0) {
                     await user.addCredits(cost, "refund", `${type} generation failed - refunded ${cost} credit${cost > 1 ? 's' : ''}`);
-                }
-
-                if (modelId) {
-                    const selectedModel = await Model.findOne({ modelId });
-                    if (selectedModel) {
-                        await selectedModel.incrementGenerationStats(false, 0);
-                    }
                 }
             }
         } catch (restoreError) {
@@ -327,9 +191,144 @@ export const generateContent = async (req, res) => {
 
         res.status(500).json({
             success: false,
-            message: "Failed to generate content.",
+            message: "Failed to initiate generation.",
             error: error.message,
         });
+    }
+};
+
+/**
+ * Background worker for content generation
+ */
+const processGenerationInBackground = async ({
+    contentId,
+    userId,
+    body,
+    useMockMode,
+    selectedModel,
+    cost,
+    usedFreeGen,
+    baseUrl,
+    config
+}) => {
+    let remoteUrl = null;
+    let generationId = null;
+    let metadataFromProvider = {};
+    let generationStartTime = Date.now();
+
+    const { type, prompt, style, model: modelId, aspectRatio = "16:9", duration = 5 } = body;
+
+    try {
+        // Update status to processing
+        await Content.findByIdAndUpdate(contentId, { status: "processing", progress: 5 });
+
+        // Real generation logic
+        if (!selectedModel) {
+            throw new Error(`Model not found for ${type} generation.`);
+        }
+
+        const apiKey = config ? config.getApiKey("competapi") : null;
+        if (!apiKey) throw new Error("CompetAPI key not configured.");
+
+        const provider = new CompetAPIProvider(apiKey, {
+            timeout: config.timeouts?.requestTimeout || 600000,
+            maxRetries: config.features?.maxRetries || 2,
+        });
+
+        const generationResult = await provider.generate({
+            model: modelId,
+            prompt,
+            type,
+            aspectRatio,
+            duration: type === "video" ? duration : undefined,
+            style,
+            imageUrl: body.imageUrl || body.image,
+            cfg_scale: body.cfg_scale || body.cfgScale,
+            mode: body.mode,
+            mask: body.mask,
+            quality: body.quality,
+            size: body.size,
+            n: body.n,
+            // Progress callback
+            onProgress: async (pData) => {
+                await Content.findByIdAndUpdate(contentId, {
+                    progress: Math.max(5, pData.progress),
+                    'metadata.status': pData.status
+                });
+            }
+        });
+
+        generationId = generationResult.generationId || generationResult.id || generationResult.task_id || `gen-${Date.now()}`;
+        // remoteUrl should specifically be the upstream external URL
+        remoteUrl = generationResult.remoteUrl?.startsWith('http') ? generationResult.remoteUrl :
+            (generationResult.url?.startsWith('http') && !generationResult.url.includes('/api/content/stream')) ? generationResult.url : null;
+        metadataFromProvider = generationResult;
+
+
+        // Final result URL
+        let resultUrl = "";
+        let thumbnailUrl = "";
+
+        if (type === "video") {
+            resultUrl = `${baseUrl}/api/content/stream/video/${generationId}`;
+            // thumbnailUrl for video should always point to the stream/image endpoint or a real remote thumbnail
+            thumbnailUrl = (metadataFromProvider.thumbnailUrl && metadataFromProvider.thumbnailUrl.startsWith('http'))
+                ? metadataFromProvider.thumbnailUrl
+                : `${baseUrl}/api/content/stream/image/${generationId}`;
+        } else {
+            resultUrl = `${baseUrl}/api/content/stream/image/${generationId}`;
+            thumbnailUrl = resultUrl;
+        }
+
+        const generationTime = Math.floor((Date.now() - generationStartTime) / 1000);
+        if (selectedModel) {
+            await selectedModel.incrementGenerationStats(true, generationTime);
+        }
+
+        // Final DB Update
+        await Content.findByIdAndUpdate(contentId, {
+            status: "completed",
+            progress: 100,
+            url: resultUrl,
+            remoteUrl: remoteUrl,
+            thumbnailUrl: thumbnailUrl,
+            generationId: generationId,
+            metadata: {
+                ...metadataFromProvider.metadata,
+                ...metadataFromProvider.data,
+                duration: type === 'video' ? duration : 0,
+                aspectRatio: aspectRatio,
+                localFilePath: metadataFromProvider.localPath,
+                generationTime
+            }
+        });
+
+    } catch (error) {
+        console.error(`[Background Gen] Error for ${contentId}:`, error);
+
+        // Update record as failed
+        await Content.findByIdAndUpdate(contentId, {
+            status: "failed",
+            error: error.message
+        });
+
+        // Refund Credits
+        try {
+            const user = await User.findById(userId);
+            if (user) {
+                if (usedFreeGen) {
+                    await user.restoreFreeGeneration(`${type} generation failed`);
+                } else {
+                    await user.addCredits(cost, "refund", `${type} generation failed - refunded ${cost} credits`);
+                }
+            }
+        } catch (refundError) {
+            console.error(`[Background Gen] Refund Failed for ${contentId}:`, refundError);
+        }
+
+        if (selectedModel) {
+            await selectedModel.incrementGenerationStats(false, 0);
+        }
     }
 };
 
@@ -535,6 +534,12 @@ export const streamImage = async (req, res) => {
             const possibleFilenames = [
                 `${id}.png`,
                 `${content.generationId}.png`,
+                `${id}.jpg`,
+                `${content.generationId}.jpg`,
+                `${id}.jpeg`,
+                `${content.generationId}.jpeg`,
+                `${id}.webp`,
+                `${content.generationId}.webp`,
                 `${id.replace(/[^a-zA-Z0-9-]/g, '')}.png`
             ];
 
@@ -586,12 +591,17 @@ export const streamImage = async (req, res) => {
 
             // Get file stats
             const stats = fs.statSync(localPath);
+            const ext = path.extname(localPath).toLowerCase();
+            const contentType = ext === '.png' ? 'image/png' :
+                ext === '.webp' ? 'image/webp' :
+                    ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' :
+                        'image/png';
 
             // SET CORS HEADERS FIRST
             res.setHeader("Access-Control-Allow-Origin", "*");
             res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
             res.setHeader("Access-Control-Expose-Headers", "Content-Length, Content-Range");
-            res.setHeader("Content-Type", "image/png");
+            res.setHeader("Content-Type", contentType);
             res.setHeader("Content-Length", stats.size);
             res.setHeader("Cache-Control", "public, max-age=31536000");
 
@@ -668,6 +678,19 @@ export const streamImage = async (req, res) => {
         // If no local file and no remote URL
         res.setHeader("Access-Control-Allow-Origin", "*");
         res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+
+        // If this is a video but no thumbnail found, use a professional SVG play-icon placeholder
+        if (content.type === 'video') {
+            const svg = `<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect width="512" height="512" fill="#1A1A1A"/>
+                <path d="M192 128L384 256L192 384V128Z" fill="#A855F7" fill-opacity="0.8"/>
+                <text x="256" y="450" text-anchor="middle" fill="white" font-family="Arial" font-size="24" opacity="0.5">Video Generation</text>
+            </svg>`;
+            res.setHeader('Content-Type', 'image/svg+xml');
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            return res.send(svg);
+        }
+
         return res.status(404).json({
             success: false,
             message: "Image file not found"
@@ -691,7 +714,6 @@ export const streamImage = async (req, res) => {
 // @access  Public
 export const streamVideo = async (req, res) => {
     try {
-        // Param extraction must match route definition: /stream/video/:videoId
         const id = req.params.videoId || req.params.id;
         if (!id) {
             res.setHeader("Access-Control-Allow-Origin", "*");
@@ -699,24 +721,16 @@ export const streamVideo = async (req, res) => {
             return res.status(400).send("Video ID is required");
         }
 
-        // First try to find content by generationId
+        // 1. Find Content
         let content = await Content.findOne({ generationId: id });
-
         if (!content) {
-            const query = { generationId: id };
-            if (id.match(/^[0-9a-fA-F]{24}$/)) {
-                query.$or = [
+            const query = {
+                $or: [
                     { generationId: id },
-                    { _id: id }
-                ];
-                delete query.generationId;
-            } else {
-                query.$or = [
-                    { generationId: id },
+                    { _id: id.match(/^[0-9a-fA-F]{24}$/) ? id : null },
                     { url: { $regex: id } }
-                ];
-                delete query.generationId;
-            }
+                ].filter(Boolean)
+            };
             content = await Content.findOne(query);
         }
 
@@ -726,12 +740,16 @@ export const streamVideo = async (req, res) => {
             return res.status(404).send("Video not found");
         }
 
-
-        // Check if we have a local file path
+        // 2. Resolve Local Path
         let localPath = content.metadata?.localFilePath;
 
         if (!localPath) {
-            const generatedPath = path.join(__dirname, '..', '..', 'public', 'generated');
+            const pathsToSearch = [
+                path.join(__dirname, '..', '..', 'public', 'generated'),
+                path.join(process.cwd(), 'public', 'generated'),
+                path.join("/", "tmp", "generated")
+            ];
+
             const possibleFilenames = [
                 `${id}.mp4`,
                 `${content.generationId}.mp4`,
@@ -739,68 +757,34 @@ export const streamVideo = async (req, res) => {
                 `${content.generationId}.mov`
             ];
 
-            for (const filename of possibleFilenames) {
-                const testPath = path.join(generatedPath, filename);
-                if (fs.existsSync(testPath)) {
-                    localPath = testPath;
-                    break;
-                }
-            }
-
-            if (!localPath) {
-                const publicPath = path.join(process.cwd(), 'public', 'generated');
-                const possibleFilenames2 = [
-                    `${id}.mp4`,
-                    `${content.generationId}.mp4`,
-                    `${id}.mov`,
-                    `${content.generationId}.mov`
-                ];
-
-                for (const filename of possibleFilenames2) {
-                    const testPath = path.join(publicPath, filename);
+            outerLoop: for (const searchDir of pathsToSearch) {
+                for (const filename of possibleFilenames) {
+                    const testPath = path.join(searchDir, filename);
                     if (fs.existsSync(testPath)) {
                         localPath = testPath;
-                        break;
-                    }
-                }
-
-                if (!localPath) {
-                    // Check Vercel /tmp directory
-                    const tmpPath = path.join("/", "tmp", "generated");
-                    for (const filename of possibleFilenames2) {
-                        const testPath = path.join(tmpPath, filename);
-                        if (fs.existsSync(testPath)) {
-                            localPath = testPath;
-                            break;
-                        }
+                        break outerLoop;
                     }
                 }
             }
 
-            // Self-heal: update DB with local path
+            // Self-heal: update DB with local path if found
             if (localPath && !content.metadata?.localFilePath) {
-                try {
-                    await Content.updateOne(
-                        { _id: content._id },
-                        { $set: { 'metadata.localFilePath': localPath } }
-                    );
-                } catch (dbError) {
-                    console.error("Failed to update content record:", dbError);
-                }
+                await Content.updateOne(
+                    { _id: content._id },
+                    { $set: { 'metadata.localFilePath': localPath } }
+                ).catch(err => console.error("Self-heal failed:", err));
             }
         }
 
+        // 3. Handle Streaming or Redirect
         if (localPath && fs.existsSync(localPath)) {
-
-            // Check if this is a download request
+            // Handle Download
             if (req.query.download === 'true') {
                 res.setHeader('Access-Control-Allow-Origin', '*');
                 res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
                 res.setHeader('Content-Disposition', `attachment; filename="pixora-video-${id}.mp4"`);
                 res.setHeader('Content-Type', 'video/mp4');
-                const readStream = fs.createReadStream(localPath);
-                readStream.pipe(res);
-                return;
+                return fs.createReadStream(localPath).pipe(res);
             }
 
             const stats = fs.statSync(localPath);
@@ -808,13 +792,11 @@ export const streamVideo = async (req, res) => {
             const range = req.headers.range;
 
             if (range) {
-                // Handle range requests for streaming
                 const parts = range.replace(/bytes=/, "").split("-");
                 const start = parseInt(parts[0], 10);
                 const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
                 const chunkSize = (end - start) + 1;
 
-                // Set all headers at once with writeHead
                 res.writeHead(206, {
                     'Content-Range': `bytes ${start}-${end}/${fileSize}`,
                     'Accept-Ranges': 'bytes',
@@ -825,96 +807,34 @@ export const streamVideo = async (req, res) => {
                     'Access-Control-Expose-Headers': 'Content-Range, Content-Length',
                 });
 
-                const fileStream = fs.createReadStream(localPath, { start, end });
-                fileStream.pipe(res);
+                return fs.createReadStream(localPath, { start, end }).pipe(res);
             } else {
-                // Full file request
-                const headers = {
+                res.writeHead(200, {
                     'Content-Length': fileSize,
                     'Content-Type': 'video/mp4',
                     'Access-Control-Allow-Origin': '*',
                     'Cross-Origin-Resource-Policy': 'cross-origin',
-                };
-
-                if (req.query.download === 'true') {
-                    headers['Content-Disposition'] = `attachment; filename="pixora-video-${id}.mp4"`;
-                }
-
-                res.writeHead(200, headers);
-
-                const fileStream = fs.createReadStream(localPath);
-                fileStream.pipe(res);
+                });
+                return fs.createReadStream(localPath).pipe(res);
             }
-            return;
-        }
-
-        // Fallback to remote URL if available
-        if (content.remoteUrl) {
-            console.log(`[Stream] Video file not found locally, falling back to remote URL: ${content.remoteUrl}`);
-
-            try {
-                // Check if it's an external URL
-                if (!content.remoteUrl.startsWith('http')) {
-                    throw new Error(`Invalid remote URL: ${content.remoteUrl}`);
-                }
-
-                const config = await AIConfig.findOne({ configKey: "global" });
-                const apiKey = config ? config.getApiKey("competapi") : process.env.COMPETAPI_KEY;
-
-                const fetchOptions = {
-                    headers: {}
-                };
-
-                if (content.remoteUrl.includes('cometapi.com') || content.remoteUrl.includes('competapi.com')) {
-                    fetchOptions.headers["Authorization"] = `Bearer ${apiKey}`;
-                }
-
-                const response = await fetch(content.remoteUrl, fetchOptions);
-                if (!response.ok) {
-                    console.error(`[Stream] Upstream video fetch failed (${response.status}): ${content.remoteUrl}`);
-                    res.setHeader("Access-Control-Allow-Origin", "*");
-                    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-                    return res.status(404).send("Upstream video not found");
-                }
-
-                // Streaming headers
-                res.setHeader("Access-Control-Allow-Origin", "*");
-                res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-                res.setHeader("Content-Type", "video/mp4");
-                res.setHeader("Cache-Control", "public, max-age=31536000");
-
-                if (req.query.download === 'true') {
-                    res.setHeader('Content-Disposition', `attachment; filename="pixora-video-${id}.mp4"`);
-                }
-
-                const { pipeline } = await import('stream/promises');
-                const { Readable } = await import('stream');
-                await pipeline(Readable.fromWeb(response.body), res);
-                return;
-            } catch (fallbackError) {
-                console.error("[Stream] Video fallback error:", fallbackError.message);
-            }
-        }
-
-        // If no local file and no remote URL
-        res.setHeader("Access-Control-Allow-Origin", "*");
-        res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-        return res.status(404).json({
-            success: false,
-            message: "Video file not found"
-        });
-
-    } catch (error) {
-        console.error("Stream Video Error:", error);
-        if (!res.headersSent) {
+        } else if (content.remoteUrl) {
+            // FALLBACK: Redirect to remote URL
+            console.log(`[Stream] Local file missing for ${id}, redirecting to ${content.remoteUrl}`);
+            return res.redirect(content.remoteUrl);
+        } else {
             res.setHeader("Access-Control-Allow-Origin", "*");
             res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-            res.status(500).send("Streaming failed");
+            return res.status(404).send("Video file not found locally or remotely");
         }
+    } catch (error) {
+        console.error("Stream Video Error:", error);
+        return res.status(500).send("Internal Server Error");
     }
 };
 
-// @desc    Download Generated Image
+
+
+// @desc    Download Image
 // @route   GET /api/content/download/:id
 // @access  Private
 export const downloadImage = async (req, res) => {
@@ -1156,6 +1076,53 @@ export const deleteContent = async (req, res) => {
         res.status(500).json({
             success: false,
             message: "Failed to delete content",
+            error: error.message
+        });
+    }
+};
+
+// @desc    Get Content Status
+// @route   GET /api/content/status/:id
+// @access  Private
+export const getContentStatus = async (req, res) => {
+    try {
+        const contentId = req.params.id;
+        const userId = req.user.id;
+
+        const content = await Content.findById(contentId);
+
+        if (!content) {
+            return res.status(404).json({
+                success: false,
+                message: "Content not found"
+            });
+        }
+
+        // Verify ownership
+        if (content.user.toString() !== userId) {
+            return res.status(403).json({
+                success: false,
+                message: "Not authorized to access this content"
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: {
+                id: content._id,
+                status: content.status,
+                progress: content.progress,
+                url: content.url,
+                thumbnailUrl: content.thumbnailUrl,
+                error: content.error,
+                type: content.type
+            }
+        });
+    } catch (error) {
+        console.error("Get Content Status Error:", error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch content status",
             error: error.message
         });
     }

@@ -36,6 +36,7 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'"],
       scriptSrc: ["'self'"],
       imgSrc: ["'self'", "data:", "https:"],
+      mediaSrc: ["'self'", "data:", "https:"],
     },
   },
 }));
@@ -43,6 +44,9 @@ app.use(helmet({
 // ✅ 3. Body parsers
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
+
+// ✅ 3.5. Static files (uploads, etc)
+app.use(express.static('public'));
 
 // ✅ 4. Logging
 app.use(morgan("combined")); // Use combined format for better logs

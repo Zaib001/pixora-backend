@@ -1,4 +1,7 @@
 import Template from '../models/Template.js';
+import Model from '../models/Model.js';
+import path from 'path';
+import { getFileUrl, deleteFile } from '../middleware/uploadMiddleware.js';
 
 /**
  * @desc    Create a new template
@@ -11,29 +14,84 @@ export const createTemplate = async (req, res) => {
             title,
             description,
             category,
+            subcategory,
+            generatorType,
+            modelId,
+            promptText,
+            promptEditable,
+            parameters,
+            inputRequirements,
             duration,
             credits,
             isPopular,
-            promptText,
-            contentType,
             isActive,
             isPublic,
             tags
         } = req.body;
 
-        // Validation
-        if (!title || !description || !promptText || !contentType) {
+        // Validation - Required fields
+        if (!title || !description || !promptText || !generatorType || !category || !modelId) {
+            if (req.file) deleteFile(req.file.path);
             return res.status(400).json({
                 success: false,
-                message: 'Please provide all required fields (title, description, promptText, contentType)'
+                message: 'Please provide all required fields: title, description, promptText, generatorType, category, modelId'
+            });
+        }
+
+        // Validate preview file upload
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: 'Preview file is required (MP4, WebM, or GIF)'
             });
         }
 
         // Ensure prompt text is meaningful
         if (promptText.length < 20) {
+            deleteFile(req.file.path);
             return res.status(400).json({
                 success: false,
-                message: 'Prompt text must be at least 20 characters to properly affect AI generation'
+                message: 'Prompt text must be at least 20 characters'
+            });
+        }
+
+        // Validate model exists and matches category
+        const model = await Model.findOne({ modelId: modelId, status: 'active' });
+        if (!model) {
+            deleteFile(req.file.path);
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid or inactive model ID'
+            });
+        }
+
+        if (model.type !== category) {
+            deleteFile(req.file.path);
+            return res.status(400).json({
+                success: false,
+                message: `Model type (${model.type}) must match template category (${category})`
+            });
+        }
+
+        // Determine preview type
+        const ext = path.extname(req.file.filename).toLowerCase();
+        const previewType = ext === '.gif' ? 'gif' : 'video';
+        const previewUrl = getFileUrl(req.file.filename);
+
+        // Parse JSON fields
+        let parsedParameters = {};
+        let parsedInputRequirements = { requiresImage: false, requiresVideo: false, maxUploads: 1 };
+        let parsedTags = [];
+
+        try {
+            if (parameters) parsedParameters = typeof parameters === 'string' ? JSON.parse(parameters) : parameters;
+            if (inputRequirements) parsedInputRequirements = typeof inputRequirements === 'string' ? JSON.parse(inputRequirements) : inputRequirements;
+            if (tags) parsedTags = typeof tags === 'string' ? JSON.parse(tags) : (Array.isArray(tags) ? tags : []);
+        } catch (parseError) {
+            deleteFile(req.file.path);
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid JSON format for parameters, inputRequirements, or tags'
             });
         }
 
@@ -41,16 +99,23 @@ export const createTemplate = async (req, res) => {
             title,
             description,
             promptText,
-            contentType,
-            category: category || 'other',
+            generatorType,
+            category,
+            subcategory: subcategory || 'other',
+            previewUrl,
+            previewType,
+            modelId,
+            promptEditable: promptEditable !== undefined ? (promptEditable === 'true' || promptEditable === true) : true,
+            parameters: parsedParameters,
+            inputRequirements: parsedInputRequirements,
             duration: duration || '',
             credits: credits || 1,
-            isPopular: isPopular || false,
-            isActive: isActive !== undefined ? isActive : true,
-            isPublic: isPublic || false,
+            isPopular: isPopular === 'true' || isPopular === true || false,
+            isActive: isActive !== undefined ? (isActive === 'true' || isActive === true) : true,
+            isPublic: isPublic === 'true' || isPublic === true || false,
             isTested: false,
             qualityScore: 0,
-            tags: tags || [],
+            tags: parsedTags,
             createdBy: req.user?._id,
             lastTestedAt: new Date()
         };
@@ -64,6 +129,7 @@ export const createTemplate = async (req, res) => {
         });
     } catch (error) {
         console.error('Create Template Error:', error);
+        if (req.file) deleteFile(req.file.path);
         res.status(500).json({
             success: false,
             message: 'Failed to create template',
@@ -93,12 +159,11 @@ export const getTemplates = async (req, res) => {
         let query = {};
 
         // Search functionality
+        // Search functionality
         if (search) {
-            query.$or = [
-                { title: { $regex: search, $options: 'i' } },
-                { description: { $regex: search, $options: 'i' } },
-                { promptText: { $regex: search, $options: 'i' } }
-            ];
+            // Use text search for better performance if possible
+            // Note: Requires text index on title, description, promptText
+            query.$text = { $search: search };
         }
 
         // Filter by category
@@ -203,11 +268,11 @@ export const getPublicTemplates = async (req, res) => {
 };
 
 /**
- * @desc    Update a template
- * @route   PATCH /api/templates/:id
- * @access  Private/Admin
+ * @desc    Get template detail (full data for generator pre-fill)
+ * @route   GET /api/templates/:id/detail
+ * @access  Public
  */
-export const updateTemplate = async (req, res) => {
+export const getTemplateDetail = async (req, res) => {
     try {
         const template = await Template.findById(req.params.id);
 
@@ -218,17 +283,146 @@ export const updateTemplate = async (req, res) => {
             });
         }
 
-        // If updating prompt text, reset testing status
-        if (req.body.promptText && req.body.promptText !== template.promptText) {
-            req.body.isTested = false;
-            req.body.lastTestedAt = new Date();
+        // Only return active and public templates to non-admin users
+        if (!template.isActive || !template.isPublic) {
+            return res.status(403).json({
+                success: false,
+                message: 'Template is not available'
+            });
         }
 
-        req.body.updatedBy = req.user?._id;
+        res.status(200).json({
+            success: true,
+            data: template
+        });
+    } catch (error) {
+        console.error('Get Template Detail Error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch template details'
+        });
+    }
+};
+
+
+/**
+ * @desc    Update a template
+ * @route   PATCH /api/templates/:id
+ * @access  Private/Admin
+ */
+export const updateTemplate = async (req, res) => {
+    try {
+        const template = await Template.findById(req.params.id);
+
+        if (!template) {
+            if (req.file) deleteFile(req.file.path);
+            return res.status(404).json({
+                success: false,
+                message: 'Template not found'
+            });
+        }
+
+        // Parse JSON fields if they're strings
+        let updateData = { ...req.body };
+
+        if (updateData.parameters && typeof updateData.parameters === 'string') {
+            try {
+                updateData.parameters = JSON.parse(updateData.parameters);
+            } catch (e) {
+                if (req.file) deleteFile(req.file.path);
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid JSON format for parameters'
+                });
+            }
+        }
+
+        if (updateData.inputRequirements && typeof updateData.inputRequirements === 'string') {
+            try {
+                updateData.inputRequirements = JSON.parse(updateData.inputRequirements);
+            } catch (e) {
+                if (req.file) deleteFile(req.file.path);
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid JSON format for inputRequirements'
+                });
+            }
+        }
+
+        if (updateData.tags && typeof updateData.tags === 'string') {
+            try {
+                updateData.tags = JSON.parse(updateData.tags);
+            } catch (e) {
+                if (req.file) deleteFile(req.file.path);
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid JSON format for tags'
+                });
+            }
+        }
+
+        // Handle boolean fields from form data
+        if (updateData.promptEditable !== undefined) {
+            updateData.promptEditable = updateData.promptEditable === 'true' || updateData.promptEditable === true;
+        }
+        if (updateData.isActive !== undefined) {
+            updateData.isActive = updateData.isActive === 'true' || updateData.isActive === true;
+        }
+        if (updateData.isPublic !== undefined) {
+            updateData.isPublic = updateData.isPublic === 'true' || updateData.isPublic === true;
+        }
+        if (updateData.isPopular !== undefined) {
+            updateData.isPopular = updateData.isPopular === 'true' || updateData.isPopular === true;
+        }
+
+        // Handle preview file replacement
+        if (req.file) {
+            // Delete old preview file
+            if (template.previewUrl) {
+                const oldFilename = template.previewUrl.split('/').pop();
+                const oldFilePath = path.join(__dirname, '../../public/uploads/templates', oldFilename);
+                deleteFile(oldFilePath);
+            }
+
+            // Set new preview URL and type
+            const ext = path.extname(req.file.filename).toLowerCase();
+            updateData.previewType = ext === '.gif' ? 'gif' : 'video';
+            updateData.previewUrl = getFileUrl(req.file.filename);
+        }
+
+        // If updating prompt text, reset testing status
+        if (updateData.promptText && updateData.promptText !== template.promptText) {
+            updateData.isTested = false;
+            updateData.lastTestedAt = new Date();
+        }
+
+        // Validate model if changed
+        if (updateData.modelId && updateData.modelId !== template.modelId) {
+            const model = await Model.findOne({ modelId: updateData.modelId, status: 'active' });
+            if (!model) {
+                if (req.file) deleteFile(req.file.path);
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid or inactive model ID'
+                });
+            }
+
+            // Validate model type matches category
+            const category = updateData.category || template.category;
+            if (model.type !== category) {
+                if (req.file) deleteFile(req.file.path);
+                return res.status(400).json({
+                    success: false,
+                    message: `Model type (${model.type}) must match template category (${category})`
+                });
+            }
+        }
+
+        updateData.updatedBy = req.user?._id;
 
         const updatedTemplate = await Template.findByIdAndUpdate(
             req.params.id,
-            req.body,
+            updateData,
             {
                 new: true,
                 runValidators: true
@@ -242,6 +436,7 @@ export const updateTemplate = async (req, res) => {
         });
     } catch (error) {
         console.error('Update Template Error:', error);
+        if (req.file) deleteFile(req.file.path);
         res.status(500).json({
             success: false,
             message: 'Failed to update template',

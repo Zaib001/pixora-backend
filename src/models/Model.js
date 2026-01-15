@@ -122,6 +122,26 @@ const modelSchema = new mongoose.Schema(
             type: Number,
             default: 0,
         },
+        // Dynamic Parameters for UI generation
+        parameters: [
+            {
+                key: { type: String, required: true },
+                label: { type: String, required: true },
+                type: {
+                    type: String,
+                    enum: ["number", "string", "select", "boolean", "slider"],
+                    default: "string"
+                },
+                defaultValue: mongoose.Schema.Types.Mixed,
+                options: [String], // for select type
+                min: Number,       // for number/slider
+                max: Number,       // for number/slider
+                step: Number,      // for slider
+                unit: String,      // e.g. "s", "px", "steps"
+                description: String,
+                required: { type: Boolean, default: false }
+            }
+        ],
     },
     {
         timestamps: true,
