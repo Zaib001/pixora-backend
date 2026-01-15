@@ -483,7 +483,7 @@ userSchema.statics = {
 };
 
 // Indexes
-userSchema.index({ email: 1 }, { unique: true });
+// userSchema.index({ email: 1 }, { unique: true }); // Removed: Covered by schema definition
 userSchema.index({ role: 1 });
 userSchema.index({ createdAt: -1 });
 userSchema.index({ "creditHistory.createdAt": -1 });

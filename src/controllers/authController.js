@@ -195,8 +195,7 @@ export const loginUser = async (req, res) => {
       },
     });
   } catch (error) {
-    incrementRateLimit(ip, email);
-
+    console.error("❌ Login Error:", error);
     incrementRateLimit(ip, email);
     return res
       .status(500)
