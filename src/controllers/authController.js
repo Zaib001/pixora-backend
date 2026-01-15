@@ -3,11 +3,11 @@ import generateToken from "../utils/tokenUtils.js";
 import crypto from "crypto";
 import validator from "validator";
 import {
-  sendVerificationEmail,
   sendPasswordResetEmail,
   sendPasswordChangedEmail,
   sendWelcomeEmail, sendOtpEmail
 } from "../utils/sendEmail.js"
+import { connectDB } from "../config/db.js";
 
 
 
@@ -67,6 +67,8 @@ export const registerUser = async (req, res) => {
     }
     if (validationErrors.length)
       return res.status(400).json({ success: false, errors: validationErrors });
+
+    await connectDB();
 
     // Duplicate check
     let user = await User.findOne({ email });
@@ -135,6 +137,9 @@ export const loginUser = async (req, res) => {
         .status(429)
         .json({ success: false, message: "Too many login attempts. Please try again later." });
     }
+
+    // Ensure DB is connected
+    await connectDB();
 
     // FIND USER
     const user = await User.findByEmail(email);
@@ -216,6 +221,8 @@ export const verifyOtp = async (req, res) => {
       });
     }
 
+    await connectDB();
+
     // Find user - OTP fields are now included by default
     const user = await User.findOne({ email: email.toLowerCase().trim() });
 
@@ -295,6 +302,8 @@ export const resendOtp = async (req, res) => {
       return res
         .status(400)
         .json({ success: false, message: "Email is required." });
+
+    await connectDB();
 
     const user = await User.findOne({ email: email.toLowerCase().trim() });
     if (!user)
@@ -617,6 +626,8 @@ export const forgotPassword = async (req, res) => {
       });
     }
 
+    await connectDB();
+
     const user = await User.findOne({ email: email.toLowerCase().trim() });
 
     // Always return success to prevent email enumeration
@@ -673,6 +684,8 @@ export const verifyResetPasswordOtp = async (req, res) => {
         message: "Email and OTP are required.",
       });
     }
+
+    await connectDB();
 
     const user = await User.findOne({ email: email.toLowerCase().trim() });
 
@@ -755,6 +768,8 @@ export const resetPassword = async (req, res) => {
     }
 
     const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+
+    await connectDB();
 
     const user = await User.findOne({
       resetPasswordToken: hashedToken,

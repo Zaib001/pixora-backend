@@ -22,7 +22,11 @@ dotenv.config();
 const app = express();
 
 // ✅ Initialize database connection
-connectDB();
+// ✅ Initialize database connection for every request (Serverless optimization)
+app.use(async (req, res, next) => {
+  await connectDB();
+  next();
+});
 
 // ✅ 1. CORS middleware - MUST BE FIRST
 app.use(corsMiddleware);

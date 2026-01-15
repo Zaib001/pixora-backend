@@ -15,7 +15,7 @@ export const connectDB = async () => {
 
   if (!cached.promise) {
     const opts = {
-      bufferCommands: false, // Disable buffering for serverless
+      // bufferCommands: true, // Default is true, enabling buffering to prevent race condition crashes
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
     };
