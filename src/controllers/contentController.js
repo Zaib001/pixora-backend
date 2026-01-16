@@ -624,8 +624,17 @@ export const streamImage = async (req, res) => {
             return;
         }
 
+
         // Fallback to remote URL if available or try to recover from provider
         if (content.remoteUrl || content.generationId) {
+
+            // OPTIMIZATION: Redirect to Cloudinary if available (CDN offload)
+            if (content.remoteUrl && content.remoteUrl.includes('cloudinary.com')) {
+                res.setHeader("Access-Control-Allow-Origin", "*");
+                res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+                return res.redirect(content.remoteUrl);
+            }
+
             console.log(`[Stream] Local file missing for ${id}, attempting remote fetch`);
 
             try {
@@ -796,6 +805,7 @@ export const streamVideo = async (req, res) => {
             }
         }
 
+
         // 3. Handle Streaming or Redirect
         if (localPath && fs.existsSync(localPath)) {
             // Handle Download
@@ -838,6 +848,13 @@ export const streamVideo = async (req, res) => {
                 return fs.createReadStream(localPath).pipe(res);
             }
         } else if (content.remoteUrl || content.generationId) {
+            // OPTIMIZATION: Redirect to Cloudinary if available (CDN offload)
+            if (content.remoteUrl && content.remoteUrl.includes('cloudinary.com')) {
+                res.setHeader("Access-Control-Allow-Origin", "*");
+                res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+                return res.redirect(content.remoteUrl);
+            }
+
             // FALLBACK: Proxy remote URL (with Range support and Self-Healing)
             console.log(`[Stream] Local file missing for ${id}, attempting remote fetch`);
 

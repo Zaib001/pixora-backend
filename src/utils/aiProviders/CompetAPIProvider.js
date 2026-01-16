@@ -9,6 +9,8 @@ import FormData from 'form-data';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+import CloudinaryProvider from "../storageProviders/CloudinaryProvider.js";
+
 /**
  * CompetAPI Provider - Real implementation based on official documentation
  * Supports video models: sora-2, veo3.1, runway-gen4, kling-2.0, luma, etc.
@@ -175,23 +177,39 @@ class CompetAPIProvider extends BaseProvider {
                 videoUrl = `${this.baseUrl}/videos/${videoId}/content`;
             }
 
+
             // Download
             let localPath = null;
+            let cloudinaryUrl = null;
             try {
-                const relativePath = await this.downloadVideo(videoId, videoUrl);
-                localPath = path.join(process.cwd(), "public", relativePath);
+                const downloadResult = await this.downloadVideo(videoId, videoUrl);
+                // Handle new object return style
+                if (typeof downloadResult === 'object') {
+                    localPath = downloadResult.localPath; // e.g. /generated/xyz.mp4
+                    cloudinaryUrl = downloadResult.cloudinaryUrl; // Main Goal!
+
+                    // If we have a persistent URL, prefer it as "remoteUrl"
+                    if (cloudinaryUrl) {
+                        videoUrl = cloudinaryUrl;
+                    }
+                } else {
+                    localPath = downloadResult;
+                }
             } catch (downloadError) {
                 console.error("[CompetAPI] Failed to auto-download video:", downloadError);
             }
 
             return {
                 url: `/api/content/stream/video/${videoId}`,
-                remoteUrl: videoUrl,
-                localPath: localPath,
+                remoteUrl: videoUrl, // Now points to Cloudinary if successful
+                localPath: localPath, // Relative path for stream fallback
                 thumbnailUrl: finalData?.thumbnail_url || finalData?.cover_url || finalData?.data?.thumbnail_url || null,
                 modelUsed: model,
                 generationId: videoId,
-                format: "mp4"
+                format: "mp4",
+                providerMetadata: {
+                    cloudinaryUrl: cloudinaryUrl
+                }
             };
 
         } catch (error) {
@@ -286,11 +304,21 @@ class CompetAPIProvider extends BaseProvider {
                 videoUrl = `${this.baseUrl}/videos/${taskId}/content`;
             }
 
+
             // Download locally
             let localPath = null;
+            let cloudinaryUrl = null;
             try {
-                const relativePath = await this.downloadVideo(taskId, videoUrl);
-                localPath = path.join(process.cwd(), "public", relativePath);
+                const downloadResult = await this.downloadVideo(taskId, videoUrl);
+                if (typeof downloadResult === 'object') {
+                    localPath = downloadResult.localPath;
+                    cloudinaryUrl = downloadResult.cloudinaryUrl;
+                    if (cloudinaryUrl) {
+                        videoUrl = cloudinaryUrl;
+                    }
+                } else {
+                    localPath = downloadResult;
+                }
             } catch (downloadError) {
                 console.error("[CompetAPI] Failed to auto-download video:", downloadError);
             }
@@ -302,7 +330,10 @@ class CompetAPIProvider extends BaseProvider {
                 thumbnailUrl: finalData?.thumbnail_url || finalData?.cover_url || finalData?.data?.thumbnail_url || null,
                 modelUsed: "kling-v1",
                 generationId: taskId,
-                format: "mp4"
+                format: "mp4",
+                providerMetadata: {
+                    cloudinaryUrl: cloudinaryUrl
+                }
             };
 
         } catch (error) {
@@ -384,11 +415,14 @@ class CompetAPIProvider extends BaseProvider {
     /**
      * Download video from CompetAPI
      */
+    /**
+     * Download video from CompetAPI
+     */
     async downloadVideo(videoId, videoUrl) {
         try {
 
             // Create output directory if it doesn't exist
-            const outputDir = path.join(process.cwd(), "public", "generated");
+            const outputDir = this._getOutputDir();
             if (!fs.existsSync(outputDir)) {
                 fs.mkdirSync(outputDir, { recursive: true });
             }
@@ -410,20 +444,41 @@ class CompetAPIProvider extends BaseProvider {
                 throw new Error(`Failed to download video: ${videoResponse.statusText}`);
             }
 
-            // Save to file
-            const outputPath = path.join(outputDir, `${videoId}.mp4`);
+            // Get buffer
             const arrayBuffer = await videoResponse.arrayBuffer();
             const videoBuffer = Buffer.from(arrayBuffer);
+
+            // 1. Save locally (Temporary/Cache)
+            const outputPath = path.join(outputDir, `${videoId}.mp4`);
             fs.writeFileSync(outputPath, videoBuffer);
 
-            if (fs.existsSync(outputPath)) {
-                const stats = fs.statSync(outputPath);
-
-                // Return relative URL for frontend
-                return `/generated/${videoId}.mp4`;
-            } else {
-                throw new Error("Failed to save video file - file does not exist after write");
+            // 2. Upload to Cloudinary (Persistent) - We return this object so generateVideo can use it
+            try {
+                console.log(`[CompetAPI] Uploading video ${videoId} to Cloudinary...`);
+                const result = await CloudinaryProvider.uploadVideo(videoBuffer, 'generated');
+                if (result && result.url) {
+                    console.log(`[CompetAPI] Cloudinary upload success: ${result.url}`);
+                    // Attach to the local file object or return separate info?
+                    // Because this method signature originally returned relativePath string,
+                    // we'll stick to that but we need to pass this up.
+                    // Actually, the caller `generateVideo` ignores the return value mostly or uses it for `localPath`.
+                    // We need to change the caller to handle Cloudinary URL.
+                    return {
+                        localPath: `/generated/${videoId}.mp4`,
+                        cloudinaryUrl: result.url,
+                        absolutePath: outputPath
+                    };
+                }
+            } catch (cloudError) {
+                console.error("[CompetAPI] Cloudinary upload failed:", cloudError);
             }
+
+            // Fallback return
+            return {
+                localPath: `/generated/${videoId}.mp4`,
+                cloudinaryUrl: null,
+                absolutePath: outputPath
+            };
 
         } catch (error) {
             console.error("[CompetAPI] Download error stack:", error);
@@ -552,6 +607,7 @@ class CompetAPIProvider extends BaseProvider {
                             throw new Error('No image data in response');
                         }
 
+
                         // Save image
                         const imageId = `edit-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
                         const outputDir = this._getOutputDir();
@@ -563,9 +619,21 @@ class CompetAPIProvider extends BaseProvider {
                         const savedImageBuffer = Buffer.from(b64Image, 'base64');
                         fs.writeFileSync(outputPath, savedImageBuffer);
 
+                        // Upload to Cloudinary
+                        let cloudinaryUrl = null;
+                        try {
+                            const result = await CloudinaryProvider.uploadImage(savedImageBuffer, 'generated');
+                            if (result && result.url) {
+                                cloudinaryUrl = result.url;
+                            }
+                        } catch (e) {
+                            console.error("Cloudinary image upload failed:", e);
+                        }
+
                         return {
                             url: `/api/content/stream/image/${imageId}`,
                             localPath: outputPath,
+                            remoteUrl: cloudinaryUrl, // Add persistent URL
                             modelUsed: "gpt-image-1",
                             generationId: imageId,
                             format: "png"
@@ -821,12 +889,24 @@ class CompetAPIProvider extends BaseProvider {
                     if (!fs.existsSync(outputDir)) {
                         fs.mkdirSync(outputDir, { recursive: true });
                     }
+
                     const outputPath = path.join(outputDir, `${generationId}.png`);
                     fs.writeFileSync(outputPath, imageBuffer);
 
+                    // Upload to Cloudinary
+                    let cloudinaryUrl = null;
+                    try {
+                        const result = await CloudinaryProvider.uploadImage(imageBuffer, 'generated');
+                        if (result && result.url) {
+                            cloudinaryUrl = result.url;
+                        }
+                    } catch (e) {
+                        console.error("Cloudinary image upload failed:", e);
+                    }
+
                     return {
                         url: `/api/content/stream/image/${generationId}`,
-                        remoteUrl: remoteUrl || null, // Preserve remoteUrl if available
+                        remoteUrl: cloudinaryUrl || remoteUrl || null,
                         localPath: outputPath,
                         modelUsed: model,
                         generationId: generationId,
@@ -834,12 +914,23 @@ class CompetAPIProvider extends BaseProvider {
                     };
 
                 } else if (remoteUrl) {
+                    // Upload to Cloudinary from remote URL
+                    let cloudinaryUrl = null;
+                    try {
+                        const result = await CloudinaryProvider.uploadFromUrl(remoteUrl, 'image', 'generated');
+                        if (result && result.url) {
+                            cloudinaryUrl = result.url;
+                        }
+                    } catch (e) {
+                        console.error("Cloudinary upload from URL failed:", e);
+                    }
+
                     return {
-                        url: remoteUrl, // Use remote URL directly if provided
-                        remoteUrl: remoteUrl,
+                        url: cloudinaryUrl || remoteUrl,
+                        remoteUrl: cloudinaryUrl || remoteUrl,
                         modelUsed: model,
                         generationId: generationId,
-                        format: "png" // Assume png
+                        format: "png"
                     };
                 }
             }
@@ -924,13 +1015,27 @@ class CompetAPIProvider extends BaseProvider {
                 throw new Error(`Failed to download image: ${imageResponse.statusText}`);
             }
 
+
             const outputPath = path.join(outputDir, `${imageId}.png`);
             const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
             fs.writeFileSync(outputPath, imageBuffer);
 
+            // Cloudinary Upload
+            let cloudinaryUrl = null;
+            try {
+                const result = await CloudinaryProvider.uploadImage(imageBuffer, 'generated');
+                if (result && result.url) {
+                    cloudinaryUrl = result.url;
+                }
+            } catch (e) {
+                console.error("Cloudinary upload failed:", e);
+            }
+
             if (fs.existsSync(outputPath)) {
-                const stats = fs.statSync(outputPath);
-                return `/generated/${imageId}.png`;
+                return {
+                    localPath: `/generated/${imageId}.png`,
+                    cloudinaryUrl: cloudinaryUrl
+                };
             } else {
                 throw new Error("Failed to save image file");
             }
