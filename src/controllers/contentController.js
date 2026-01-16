@@ -624,42 +624,61 @@ export const streamImage = async (req, res) => {
             return;
         }
 
-        // Fallback to remote URL if available
-        if (content.remoteUrl) {
-            console.log(`[Stream] File not found locally, falling back to remote URL: ${content.remoteUrl}`);
+        // Fallback to remote URL if available or try to recover from provider
+        if (content.remoteUrl || content.generationId) {
+            console.log(`[Stream] Local file missing for ${id}, attempting remote fetch`);
 
             try {
-                // Check if it's an external URL (starts with http)
-                if (!content.remoteUrl.startsWith('http')) {
-                    throw new Error(`Invalid remote URL: ${content.remoteUrl}`);
-                }
-
                 const config = await AIConfig.findOne({ configKey: "global" });
                 const apiKey = config ? config.getApiKey("competapi") : process.env.COMPETAPI_KEY;
 
-                // Try fetching with API key first (for protected URLs)
-                const fetchOptions = {
-                    headers: {}
-                };
+                // 1. Try stored remoteUrl first
+                let response = null;
+                let fetchUrl = content.remoteUrl;
 
-                // Only add Authorization if it's a CompetAPI URL
-                if (content.remoteUrl.includes('cometapi.com') || content.remoteUrl.includes('competapi.com')) {
-                    fetchOptions.headers["Authorization"] = `Bearer ${apiKey}`;
+                if (fetchUrl && fetchUrl.startsWith('http')) {
+                    const fetchOptions = { headers: {} };
+                    if (fetchUrl.includes('cometapi.com') || fetchUrl.includes('competapi.com')) {
+                        fetchOptions.headers["Authorization"] = `Bearer ${apiKey}`;
+                    }
+
+                    try {
+                        const tryResponse = await fetch(fetchUrl, fetchOptions);
+                        if (tryResponse.ok) {
+                            response = tryResponse;
+                        } else {
+                            console.warn(`[Stream] Stored remoteUrl failed (${tryResponse.status}), trying fallback...`);
+                        }
+                    } catch (e) {
+                        console.warn(`[Stream] Fetch error on remoteUrl: ${e.message}`);
+                    }
                 }
 
-                const response = await fetch(content.remoteUrl, fetchOptions);
+                // 2. If failed, try direct provider endpoint (Self-Healing)
+                if (!response && content.generationId) {
+                    const fallbackUrl = `https://api.cometapi.com/v1/images/${content.generationId}/content`;
+                    console.log(`[Stream] Attempting fallback to provider: ${fallbackUrl}`);
 
-                if (!response.ok) {
-                    console.error(`[Stream] Upstream fetch failed (${response.status}): ${content.remoteUrl}`);
-                    res.setHeader("Access-Control-Allow-Origin", "*");
-                    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-                    return res.status(404).send("Upstream image not found");
+                    const fallbackResponse = await fetch(fallbackUrl, {
+                        headers: { "Authorization": `Bearer ${apiKey}` }
+                    });
+
+                    if (fallbackResponse.ok) {
+                        response = fallbackResponse;
+                        // Optional: Update DB with new valid URL could be done here asynchronously
+                    } else {
+                        console.error(`[Stream] Fallback failed (${fallbackResponse.status})`);
+                    }
+                }
+
+                if (!response) {
+                    throw new Error("All remote fetch attempts failed");
                 }
 
                 // SET CORS HEADERS
                 res.setHeader("Access-Control-Allow-Origin", "*");
                 res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-                res.setHeader("Content-Type", "image/png");
+                res.setHeader("Content-Type", response.headers.get("content-type") || "image/png");
                 res.setHeader("Cache-Control", "public, max-age=31536000");
 
                 if (req.query.download === 'true') {
@@ -670,8 +689,9 @@ export const streamImage = async (req, res) => {
                 const { Readable } = await import('stream');
                 await pipeline(Readable.fromWeb(response.body), res);
                 return;
+
             } catch (fallbackError) {
-                console.error("[Stream] Fallback error:", fallbackError.message);
+                console.error("[Stream] Remote stream error:", fallbackError.message);
             }
         }
 
