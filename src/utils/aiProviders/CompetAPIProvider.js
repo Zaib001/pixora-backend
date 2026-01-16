@@ -80,7 +80,7 @@ class CompetAPIProvider extends BaseProvider {
 
             // 2. Seconds: Default to 4, allowed: 4, 8, 12
             let seconds = "4";
-            const validSeconds = ["4", "8", "12"];
+            const validSeconds = ["4", "8"];
             const durationStr = String(duration);
             if (validSeconds.includes(durationStr)) {
                 seconds = durationStr;

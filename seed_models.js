@@ -36,7 +36,7 @@ const seedModels = async () => {
                     label: "Duration (Seconds)",
                     type: "select",
                     defaultValue: "4",
-                    options: ["4", "8", "12"],
+                    options: ["4", "8"],
                     required: true,
                     description: "Length of the generated video."
                 },
@@ -65,7 +65,7 @@ const seedModels = async () => {
                     label: "Duration (Seconds)",
                     type: "select",
                     defaultValue: "4",
-                    options: ["4", "8", "12"],
+                    options: ["4", "8"],
                     required: true
                 },
                 {
