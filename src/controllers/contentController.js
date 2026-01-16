@@ -818,9 +818,82 @@ export const streamVideo = async (req, res) => {
                 return fs.createReadStream(localPath).pipe(res);
             }
         } else if (content.remoteUrl) {
-            // FALLBACK: Redirect to remote URL
-            console.log(`[Stream] Local file missing for ${id}, redirecting to ${content.remoteUrl}`);
-            return res.redirect(content.remoteUrl);
+            // FALLBACK: Proxy remote URL (with Range support)
+            console.log(`[Stream] Local file missing for ${id}, proxying from ${content.remoteUrl}`);
+
+            try {
+                if (!content.remoteUrl.startsWith('http')) {
+                    throw new Error(`Invalid remote URL: ${content.remoteUrl}`);
+                }
+
+                const config = await AIConfig.findOne({ configKey: "global" });
+                const apiKey = config ? config.getApiKey("competapi") : process.env.COMPETAPI_KEY;
+
+                const fetchOptions = {
+                    headers: {}
+                };
+
+                // Forward Range header if present
+                if (req.headers.range) {
+                    fetchOptions.headers['Range'] = req.headers.range;
+                }
+
+                // Add Auth if needed
+                if (content.remoteUrl.includes('cometapi.com') || content.remoteUrl.includes('competapi.com')) {
+                    fetchOptions.headers["Authorization"] = `Bearer ${apiKey}`;
+                }
+
+                const response = await fetch(content.remoteUrl, fetchOptions);
+
+                if (!response.ok) {
+                    console.error(`[Stream] Upstream video fetch failed (${response.status}): ${content.remoteUrl}`);
+
+                    // Allow CORS for the error response too
+                    res.setHeader("Access-Control-Allow-Origin", "*");
+                    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+
+                    if (response.status === 404) {
+                        return res.status(404).send("Upstream video not found");
+                    }
+                    return res.status(response.status).send(`Upstream error: ${response.statusText}`);
+                }
+
+                // Forward important headers
+                res.setHeader("Access-Control-Allow-Origin", "*");
+                res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+
+                const headersToForward = [
+                    'content-type',
+                    'content-length',
+                    'content-range',
+                    'accept-ranges',
+                    'cache-control',
+                    'last-modified',
+                    'etag'
+                ];
+
+                headersToForward.forEach(headerName => {
+                    const headerValue = response.headers.get(headerName);
+                    if (headerValue) {
+                        res.setHeader(headerName, headerValue);
+                    }
+                });
+
+                // Set status code (200 or 206)
+                res.status(response.status);
+
+                const { pipeline } = await import('stream/promises');
+                const { Readable } = await import('stream');
+                await pipeline(Readable.fromWeb(response.body), res);
+                return;
+
+            } catch (proxyError) {
+                console.error(`[Stream] Proxy error for ${id}:`, proxyError);
+                if (!res.headersSent) {
+                    res.setHeader("Access-Control-Allow-Origin", "*");
+                    res.status(500).send("Failed to stream remote video");
+                }
+            }
         } else {
             res.setHeader("Access-Control-Allow-Origin", "*");
             res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
