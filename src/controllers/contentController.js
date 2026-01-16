@@ -837,45 +837,53 @@ export const streamVideo = async (req, res) => {
                 });
                 return fs.createReadStream(localPath).pipe(res);
             }
-        } else if (content.remoteUrl) {
-            // FALLBACK: Proxy remote URL (with Range support)
-            console.log(`[Stream] Local file missing for ${id}, proxying from ${content.remoteUrl}`);
+        } else if (content.remoteUrl || content.generationId) {
+            // FALLBACK: Proxy remote URL (with Range support and Self-Healing)
+            console.log(`[Stream] Local file missing for ${id}, attempting remote fetch`);
 
             try {
-                if (!content.remoteUrl.startsWith('http')) {
-                    throw new Error(`Invalid remote URL: ${content.remoteUrl}`);
-                }
-
                 const config = await AIConfig.findOne({ configKey: "global" });
                 const apiKey = config ? config.getApiKey("competapi") : process.env.COMPETAPI_KEY;
 
-                const fetchOptions = {
-                    headers: {}
+                let response = null;
+
+                // Helper to try a URL
+                const tryFetch = async (url) => {
+                    if (!url || !url.startsWith('http')) return null;
+
+                    const fetchOptions = { headers: {} };
+                    if (req.headers.range) {
+                        fetchOptions.headers['Range'] = req.headers.range;
+                    }
+                    // Auth for cometapi
+                    if (url.includes('cometapi.com') || url.includes('competapi.com')) {
+                        fetchOptions.headers["Authorization"] = `Bearer ${apiKey}`;
+                    }
+
+                    try {
+                        const res = await fetch(url, fetchOptions);
+                        return res.ok || res.status === 206 ? res : null;
+                    } catch (e) {
+                        console.warn(`[Stream] Fetch error (${url}): ${e.message}`);
+                        return null;
+                    }
                 };
 
-                // Forward Range header if present
-                if (req.headers.range) {
-                    fetchOptions.headers['Range'] = req.headers.range;
+                // 1. Try stored remoteUrl
+                response = await tryFetch(content.remoteUrl);
+
+                // 2. Fallback to provider endpoint
+                if (!response && content.generationId) {
+                    const fallbackUrl = `https://api.cometapi.com/v1/videos/${content.generationId}/content`;
+                    console.log(`[Stream] Primary URL failed, trying fallback: ${fallbackUrl}`);
+                    response = await tryFetch(fallbackUrl);
                 }
 
-                // Add Auth if needed
-                if (content.remoteUrl.includes('cometapi.com') || content.remoteUrl.includes('competapi.com')) {
-                    fetchOptions.headers["Authorization"] = `Bearer ${apiKey}`;
-                }
-
-                const response = await fetch(content.remoteUrl, fetchOptions);
-
-                if (!response.ok) {
-                    console.error(`[Stream] Upstream video fetch failed (${response.status}): ${content.remoteUrl}`);
-
-                    // Allow CORS for the error response too
+                if (!response) {
+                    // Allow CORS for error
                     res.setHeader("Access-Control-Allow-Origin", "*");
                     res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-
-                    if (response.status === 404) {
-                        return res.status(404).send("Upstream video not found");
-                    }
-                    return res.status(response.status).send(`Upstream error: ${response.statusText}`);
+                    return res.status(404).send("Upstream video not found");
                 }
 
                 // Forward important headers
@@ -884,7 +892,6 @@ export const streamVideo = async (req, res) => {
 
                 const headersToForward = [
                     'content-type',
-                    'content-length',
                     'content-range',
                     'accept-ranges',
                     'cache-control',
