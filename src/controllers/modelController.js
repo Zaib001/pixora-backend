@@ -65,8 +65,9 @@ export const getActiveModels = async (req, res) => {
             query.type = type;
         }
 
+
         const models = await Model.find(query)
-            .select('modelId name type description parameters specifications')
+            .select('modelId name type description parameters specifications supportedContexts')
             .sort({ displayOrder: 1, name: 1 })
             .lean();
 
@@ -100,6 +101,7 @@ export const createModel = async (req, res) => {
             tags,
             isPopular,
             parameters,
+            supportedContexts,
         } = req.body;
 
         // Check if model already exists
@@ -122,6 +124,7 @@ export const createModel = async (req, res) => {
             tags,
             isPopular,
             parameters: parameters || [],
+            supportedContexts: supportedContexts || [],
             status: "active",
         });
 

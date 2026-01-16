@@ -111,9 +111,15 @@ const modelSchema = new mongoose.Schema(
                 default: 0,
             },
         },
+
         // Metadata
         description: String,
         tags: [String],
+        supportedContexts: {
+            type: [String],
+            enum: ["text-to-video", "image-to-video", "text-to-image", "image-to-image", "video-to-video"],
+            default: []
+        },
         isPopular: {
             type: Boolean,
             default: false,
